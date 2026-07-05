@@ -3,6 +3,7 @@ import { runFundamentalCli, fundamentalSyncState } from "./sync-data";
 import { rl } from "../index";
 import app from "../server";
 import { PORT } from "../config";
+import { formatAbbr } from "../utils/formatMoney";
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
@@ -25,16 +26,20 @@ interface EmitenData {
   per: number;
   roe: number;
   der: number;
-  price_updated_at: string | null;
-  fundamental_updated_at: string | null;
+  price_updated_at: string;
+  fundamental_updated_at: string;
 }
 
 interface StockHistoryData {
   year: number;
   period: string;
-  pbv: number;
+  revenue: string;
+  net_profit: string;
+  eps: number;
   roe: number;
   der: number;
+  per: number;
+  pbv: number;
 }
 
 // Fungsi pembantu menghitung panjang teks tanpa kode warna ANSI
@@ -255,7 +260,7 @@ export async function handleCommand(
         const histories = db
           .query(
             `
-          SELECT year, period, pbv, roe, der 
+          SELECT revenue, net_profit, eps ,year, period, pbv, roe, der 
           FROM stock_histories 
           WHERE emiten_id = ? AND period = 'FY'
           ORDER BY year DESC
@@ -381,60 +386,76 @@ export async function handleCommand(
         );
 
         // 2. RENDER TABEL HISTORI TAHUNAN (STOCK HISTORIES)
-        console.log(
-          `\n ${BOLD}📈 TABEL RIWAYAT TAHUNAN (STOCK HISTORIES):${RESET}`,
-        );
+        // 2. RENDER TABEL HISTORI TAHUNAN (STOCK HISTORIES)
+        console.log(`\n ${BOLD}📈 TABEL RIWAYAT FUNDAMENTAL HISTORIS:${RESET}`);
+
         if (histories.length === 0) {
           console.log(
-            ` ${RED}Stock histories tidak ditemukan atau belum pernah di-sync ❌${RESET}\n`,
+            ` ${BG_RED}${BOLD} Data fundamental kosong atau belum pernah di-sync ❌ ${RESET}\n`,
           );
         } else {
-          // Total lebar tabel = 8 + 10 + 11 + 11 + 11 + 4 pembatas internal = 55 karakter (Rapi di bawah kartu profil)
+          // Total lebar kolom + pembatas internal = 113 karakter (Sangat fit di bawah BOX_WIDTH 117)
           const wYr = 8,
-            wPer = 10,
-            wPbv = 11,
+            wPer = 8,
+            wRev = 18,
+            wNet = 18,
+            wEps = 11,
             wRoe = 11,
-            wDer = 11;
+            wDer = 11,
+            wPerRatio = 11,
+            wPbv = 11;
+
+          // Header Border Atas
           console.log(
-            ` ${GRAY}┌${"─".repeat(wYr)}┬${"─".repeat(wPer)}┬${"─".repeat(wPbv)}┬${"─".repeat(wRoe)}┬${"─".repeat(wDer)}┐${RESET}`,
+            ` ${GRAY}┌${"─".repeat(wYr)}┬${"─".repeat(wPer)}┬${"─".repeat(wRev)}┬${"─".repeat(wNet)}┬${"─".repeat(wEps)}┬${"─".repeat(wRoe)}┬${"─".repeat(wDer)}┬${"─".repeat(wPerRatio)}┬${"─".repeat(wPbv)}┐${RESET}`,
           );
+
+          // Judul Kolom (Header Text)
           console.log(
-            ` ${GRAY}│${RESET}${padColumn(" TAHUN", wYr)}${GRAY}│${RESET}${padColumn(" PERIOD", wPer)}${GRAY}│${RESET}${padColumn(" PBV", wPbv, "right")}${GRAY}│${RESET}${padColumn(" ROE", wRoe, "right")}${GRAY}│${RESET}${padColumn(" DER", wDer, "right")}${GRAY}│${RESET}`,
+            ` ${GRAY}│${RESET}${padColumn(" TAHUN", wYr)}${GRAY}│${RESET}${padColumn(" PERIOD", wPer)}${GRAY}│${RESET}${padColumn(" REVENUE", wRev, "right")}${GRAY}│${RESET}${padColumn(" NET PROFIT", wNet, "right")}${GRAY}│${RESET}${padColumn(" EPS", wEps, "right")}${GRAY}│${RESET}${padColumn(" ROE", wRoe, "right")}${GRAY}│${RESET}${padColumn(" DER", wDer, "right")}${GRAY}│${RESET}${padColumn(" PER", wPerRatio, "right")}${GRAY}│${RESET}${padColumn(" PBV", wPbv, "right")}${GRAY}│${RESET}`,
           );
+
+          // Pembatas Header ke Data
           console.log(
-            ` ${GRAY}├${"─".repeat(wYr)}┼${"─".repeat(wPer)}┼${"─".repeat(wPbv)}┼${"─".repeat(wRoe)}┼${"─".repeat(wDer)}┤${RESET}`,
+            ` ${GRAY}├${"─".repeat(wYr)}┼${"─".repeat(wPer)}┼${"─".repeat(wRev)}┼${"─".repeat(wNet)}┼${"─".repeat(wEps)}┼${"─".repeat(wRoe)}┼${"─".repeat(wDer)}┼${"─".repeat(wPerRatio)}┼${"─".repeat(wPbv)}┤${RESET}`,
           );
 
           for (let hist of histories) {
+            // Format text untuk nominal besar agar tidak terlalu panjang jika ada string bawaan dari scraper
+            const displayRev = hist.revenue ? formatAbbr(hist.revenue) : "-";
+            const displayNet = hist.net_profit
+              ? formatAbbr(hist.net_profit)
+              : "-";
+
             const cYr = padColumn(` ${hist.year}`, wYr);
             const cPer = padColumn(` ${hist.period}`, wPer);
-            const cPbv = padColumn(
-              `${(hist.pbv ?? 0).toFixed(2)}x `,
-              wPbv,
+            const cRev = padColumn(`${displayRev} `, wRev, "right");
+            const cNet = padColumn(`${displayNet} `, wNet, "right");
+            const cEps = padColumn(`${hist.eps ?? 0} `, wEps, "right");
+            const cRoe = padColumn(`${hist.roe ?? 0}% `, wRoe, "right");
+            const cDer = padColumn(`${hist.der ?? 0}x `, wDer, "right");
+            const cPerRatio = padColumn(
+              `${hist.per ?? 0}x `,
+              wPerRatio,
               "right",
             );
-            const cRoe = padColumn(
-              `${(hist.roe ?? 0).toFixed(2)}% `,
-              wRoe,
-              "right",
-            );
-            const cDer = padColumn(
-              `${(hist.der ?? 0).toFixed(2)}% `,
-              wDer,
-              "right",
-            );
+            const cPbv = padColumn(`${hist.pbv ?? 0}x `, wPbv, "right");
+
             console.log(
-              ` ${GRAY}│${RESET}${cYr}${GRAY}│${RESET}${cPer}${GRAY}│${RESET}${cPbv}${GRAY}│${RESET}${cRoe}${GRAY}│${RESET}${cDer}${GRAY}│${RESET}`,
+              ` ${GRAY}│${RESET}${cYr}${GRAY}│${RESET}${cPer}${GRAY}│${RESET}${cRev}${GRAY}│${RESET}${cNet}${GRAY}│${RESET}${cEps}${GRAY}│${RESET}${cRoe}${GRAY}│${RESET}${cDer}${GRAY}│${RESET}${cPerRatio}${GRAY}│${RESET}${cPbv}${GRAY}│${RESET}`,
             );
           }
+
+          // Border Bawah Tabel
           console.log(
-            ` ${GRAY}└${"─".repeat(wYr)}┴${"─".repeat(wPer)}┴${"─".repeat(wPbv)}┴${"─".repeat(wRoe)}┴${"─".repeat(wDer)}┘${RESET}\n`,
+            ` ${GRAY}└${"─".repeat(wYr)}┴${"─".repeat(wPer)}┴${"─".repeat(wRev)}┴${"─".repeat(wNet)}┴${"─".repeat(wEps)}┴${"─".repeat(wRoe)}┴${"─".repeat(wDer)}┴${"─".repeat(wPerRatio)}┴${"─".repeat(wPbv)}┘${RESET}\n`,
           );
         }
       } catch (err: any) {
         console.log(`❌ Gagal mengambil data detail emiten: ${err.message}\n`);
       }
       break;
+
     case "api":
       try {
         // 1. Ambil data routes secara dinamis dari registrasi Hono app
