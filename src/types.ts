@@ -53,6 +53,10 @@ export interface YahooProfileData {
 export interface YahooFinancialHistory {
   revenue?: string;
   net_profit?: string;
+  operating_income?: number; // Baru
+  free_cash_flow?: number; // Baru
+  capital_expenditure?: number; // Baru
+  interest_expense?: number; // Baru
   eps?: number;
   ebitda?: number;
   total_assets?: number;

@@ -125,4 +125,15 @@ db.run(`
   );
 `);
 
+db.run(`
+  ALTER TABLE stock_histories ADD COLUMN operating_income NUMERIC DEFAULT 0.00;
+  ALTER TABLE stock_histories ADD COLUMN ebitda NUMERIC DEFAULT 0.00;
+  ALTER TABLE stock_histories ADD COLUMN free_cash_flow NUMERIC DEFAULT 0.00;
+  ALTER TABLE stock_histories ADD COLUMN capital_expenditure NUMERIC DEFAULT 0.00;
+  ALTER TABLE stock_histories ADD COLUMN interest_expense NUMERIC DEFAULT 0.00;
+  ALTER TABLE stock_histories ADD COLUMN total_assets NUMERIC DEFAULT 0.00;
+  ALTER TABLE stock_histories ADD COLUMN total_debt NUMERIC DEFAULT 0.00;
+  ALTER TABLE stock_histories ADD COLUMN cash NUMERIC DEFAULT 0.00;
+`);
+
 export default db;

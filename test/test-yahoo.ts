@@ -3,7 +3,7 @@
 import { scrapeFundamentalYahoo } from "../src/scrapper/helper/scrapeFundamentalYahoo";
 
 async function runYahooTest() {
-  const ticker = "CARE"; // Sumber uji coba saham Alfamart
+  const ticker = "AMRT"; // Sumber uji coba saham Alfamart
   console.log(
     `\n🔍 Memulai pengujian gabungan scraper Yahoo Finance untuk emiten: ${ticker}...`,
   );

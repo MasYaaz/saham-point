@@ -2,16 +2,27 @@ import { YAHOO_HEADERS } from "../../config";
 import type { YahooFinancialHistory } from "../../types";
 import * as cheerio from "cheerio";
 
+// Helper untuk mendapatkan kurs per tahun
+async function getYearlyRate(year: number): Promise<number> {
+  const rates: Record<number, number> = {
+    2026: 16200,
+    2025: 16000,
+    2024: 15800,
+    2023: 15500,
+    2022: 15700,
+    2021: 14200,
+  };
+  return rates[year] || 16000;
+}
+
 /**
- * 5. CORE PARSER & SCRAPER GABUNGAN YAHOO FINANCE (LANGSUNG SCRAPE PER & PBV HISTORIS)
+ * 5. CORE PARSER & SCRAPER GABUNGAN YAHOO FINANCE
  */
 export async function scrapeFundamentalYahoo(
   code: string,
 ): Promise<Record<number, YahooFinancialHistory> | null> {
   const symbol =
     code.toUpperCase() === "IHSG" ? "^JKSE" : `${code.toUpperCase()}.JK`;
-
-  // Cukup fetch 3 halaman laporan keuangan utama (Halaman key-statistics dibuang)
   const urls = [
     `https://finance.yahoo.com/quote/${symbol}/financials`,
     `https://finance.yahoo.com/quote/${symbol}/balance-sheet`,
@@ -28,13 +39,19 @@ export async function scrapeFundamentalYahoo(
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
+    // Deteksi Mata Uang Global
+    const firstValidHtml = htmlSections.find((html) => html.length > 0) || "";
+    const $global = cheerio.load(firstValidHtml);
+    const globalCurrencyText = $global("span")
+      .filter((_, el) => $global(el).text().includes("Currency in"))
+      .text();
+    const isUSD = globalCurrencyText.includes("USD");
+    console.log(`[Scraper] Currency detected: ${isUSD ? "USD" : "IDR"}`);
+
     const finalHistory: Record<
       number,
       YahooFinancialHistory & { shares_outstanding?: number }
     > = {};
-
-    // Tambahkan TTM penampung khusus untuk membaca EPS TTM dari baris tabel jika dibutuhkan
-    let ttmEpsRaw = 0;
 
     const metricMapping: Record<
       string,
@@ -42,30 +59,45 @@ export async function scrapeFundamentalYahoo(
     > = {
       "Total Revenue": "revenue",
       "Net Income Common Stockholders": "net_profit",
+      "Operating Income": "operating_income",
+      "Free Cash Flow": "free_cash_flow",
+      "Capital Expenditure": "capital_expenditure",
+      "Interest Expense": "interest_expense",
       "Basic EPS": "eps",
       EBITDA: "ebitda",
       "Total Assets": "total_assets",
       "Total Equity Gross Minority Interest": "total_equity",
       "Total Debt": "total_debt",
-      "Cash And Cash Equivalents": "cash",
+      "End Cash Position": "cash",
       "Ordinary Shares Number": "shares_outstanding",
     };
 
-    function cleanValue(raw: string): number {
+    // FUNGSI BARU: Menangani skala ribuan (Thousands)
+    function cleanValue(raw: string, isThousands: boolean): number {
       const cleanStr = raw.trim().replace(/,/g, "");
       if (cleanStr === "--" || cleanStr === "") return 0;
+
       if (cleanStr.endsWith("T"))
         return parseFloat(cleanStr) * 1_000_000_000_000;
       if (cleanStr.endsWith("B")) return parseFloat(cleanStr) * 1_000_000_000;
       if (cleanStr.endsWith("M")) return parseFloat(cleanStr) * 1_000_000;
-      return parseFloat(cleanStr);
+
+      const parsed = parseFloat(cleanStr);
+      return isThousands ? parsed * 1000 : parsed;
     }
 
-    // Loop 1 & 2: Membaca Laporan Keuangan (Halaman 1, 2, dan 3)
     for (let i = 0; i < 3; i++) {
       const html = htmlSections[i];
       if (!html) continue;
+
       const $ = cheerio.load(html);
+
+      // Cek apakah halaman ini menggunakan skala "in thousands"
+      const pageCurrencyText = $("span")
+        .filter((_, el) => $(el).text().includes("Currency in"))
+        .text();
+      const isThousands = pageCurrencyText.toLowerCase().includes("thousands");
+
       const currentTablePeriods: { index: number; year: number | string }[] =
         [];
 
@@ -83,24 +115,37 @@ export async function scrapeFundamentalYahoo(
         }
       });
 
+      // 1. PRE-FETCH MULTIPLIER SEBELUM LOOP DATA
+      // Menyelesaikan TS Error 1308 tanpa mengorbankan fungsionalitas
+      const yearMultipliers: Record<number, number> = {};
+      for (const col of currentTablePeriods) {
+        if (col.year !== "TTM") {
+          const y = col.year as number;
+          yearMultipliers[y] = isUSD ? await getYearlyRate(y) : 1;
+        }
+      }
+
+      // 2. LOOP PARSING DATA SECARA SINKRON
       $(".tableBody .row").each((_, rowEl) => {
         const title = $(rowEl).find(".rowTitle").text().trim();
         const targetKey = metricMapping[title];
+
         if (targetKey) {
           const columns = $(rowEl).find(".column");
+
           currentTablePeriods.forEach((col) => {
-            const rawText = $(columns[col.index]).text().trim();
-            const cleaned = cleanValue(rawText);
-
-            if (col.year === "TTM") {
-              // Tangkap EPS TTM secara khusus sebagai jangkar penentu basis mata uang laporan keuangan
-              if (targetKey === "eps") {
-                ttmEpsRaw = cleaned;
-              }
-              return;
-            }
-
+            if (col.year === "TTM") return;
             const year = col.year as number;
+
+            const rawText = $(columns[col.index]).text().trim();
+            const cleaned = cleanValue(rawText, isThousands); // Gunakan flag ribuan
+
+            const multiplier = yearMultipliers[year] || 1;
+            const convertedValue =
+              targetKey === "shares_outstanding"
+                ? cleaned
+                : cleaned * multiplier;
+
             if (!finalHistory[year]) {
               finalHistory[year] = {
                 revenue: "",
@@ -115,13 +160,17 @@ export async function scrapeFundamentalYahoo(
                 der: 0,
                 per: 0,
                 pbv: 0,
+                operating_income: 0,
+                interest_expense: 0,
+                capital_expenditure: 0,
+                free_cash_flow: 0,
               };
             }
 
             if (targetKey === "revenue" || targetKey === "net_profit") {
-              finalHistory[year][targetKey] = String(cleaned);
+              finalHistory[year][targetKey] = String(convertedValue);
             } else {
-              (finalHistory[year] as any)[targetKey] = cleaned;
+              (finalHistory[year] as any)[targetKey] = convertedValue;
             }
           });
         }
@@ -130,7 +179,7 @@ export async function scrapeFundamentalYahoo(
 
     if (Object.keys(finalHistory).length === 0) return null;
 
-    // --- AMBIL DATA HARGA HISTORIS AKHIR TAHUN DARI API CHART YAHOO ---
+    // --- PROSES AMBIL HARGA HISTORIS ---
     const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=5y&interval=1d`;
     const chartRes = await fetch(chartUrl, {
       headers: {
@@ -141,62 +190,38 @@ export async function scrapeFundamentalYahoo(
 
     const historicalPrices: Record<number, number> = {};
     let livePrice = 0;
-    let trailingPeggedPer = 0; // fallback PER pasar bawaan Yahoo meta data jika tersedia
 
     if (chartRes.ok) {
       const chartBody: any = await chartRes.json();
       const result = chartBody?.chart?.result?.[0];
+
       if (result) {
+        livePrice = parseFloat(result.meta?.regularMarketPrice ?? 0);
         const timestamps = (result.timestamp as number[]) ?? [];
         const closePrices =
           (result.indicators?.quote?.[0]?.close as (number | null)[]) ?? [];
-        livePrice = parseFloat(result.meta?.regularMarketPrice ?? 0);
-        trailingPeggedPer = parseFloat(result.meta?.trailingPeggedPer ?? 0);
 
         timestamps.forEach((ts, idx) => {
           const price = closePrices[idx];
           if (typeof price === "number" && price > 0) {
-            const date = new Date(ts * 1000);
-            const year = date.getFullYear();
+            const year = new Date(ts * 1000).getFullYear();
             historicalPrices[year] = price;
           }
         });
       }
     }
 
-    // --- LOGIKA UTAMA: KALKULASI DINAMIS EXCH_RATE MULTIPLIER ---
-    let dynamicCurrencyMultiplier = 1;
+    // --- PROSES KALKULASI RASIO ---
+    const getEffectiveRate = async (year: number) => {
+      return isUSD ? await getYearlyRate(year) : 1;
+    };
 
-    // Jika total_equity rata-rata emiten terdeteksi bernilai kecil (< 500 Miliar),
-    // hampir dipastikan ini adalah emiten bermata uang laporan USD (seperti AMMN).
-    const sampleYear = Object.keys(finalHistory)[0];
-    const sampleEquity = sampleYear
-      ? Number(finalHistory[parseInt(sampleYear)]?.total_equity ?? 0)
-      : 0;
-
-    if (sampleEquity > 0 && sampleEquity < 500_000_000_000) {
-      // Kita hitung implied currency exchange rate menggunakan triangulasi data:
-      if (livePrice > 0 && ttmEpsRaw > 0) {
-        // Jika ada data PER pasar ter-pegged, gunakan untuk mencari kurs murni
-        const targetPer = trailingPeggedPer > 0 ? trailingPeggedPer : 15; // default 15x market standard
-        dynamicCurrencyMultiplier = livePrice / ttmEpsRaw / (targetPer / 15);
-      }
-
-      // Batasan aman (sanity check): pastikan hasil pembagian dinamis berada di range logis nilai kurs USD/IDR dunia harian
-      if (
-        dynamicCurrencyMultiplier < 10000 ||
-        dynamicCurrencyMultiplier > 22000
-      ) {
-        dynamicCurrencyMultiplier = 16100; // nilai jangkar aman darurat jika data TTM blackout
-      }
-    }
-
-    // --- PROSES KALKULASI RASIO MANDIRI LUAR DALAM ---
-    // --- PROSES KALKULASI RASIO MANDIRI LUAR DALAM ---
     for (const [yearStr, values] of Object.entries(finalHistory)) {
       const year = parseInt(yearStr);
       const historyYear = finalHistory[year];
       if (!historyYear) continue;
+
+      const dynamicCurrencyMultiplier = await getEffectiveRate(year);
 
       const totalEquity = Number(values.total_equity ?? 0);
       const totalDebt = Number(values.total_debt ?? 0);
@@ -204,7 +229,6 @@ export async function scrapeFundamentalYahoo(
       const netProfitRealNum = Number(values.net_profit ?? 0);
       const sharesOutstanding = Number(values.shares_outstanding ?? 0);
 
-      // 1. Profitabilitas & Solvabilitas Murni
       historyYear.roe =
         totalEquity > 0
           ? parseFloat(((netProfitRealNum / totalEquity) * 100).toFixed(2))
@@ -212,28 +236,21 @@ export async function scrapeFundamentalYahoo(
       historyYear.der =
         totalEquity > 0 ? parseFloat((totalDebt / totalEquity).toFixed(2)) : 0;
 
-      // Ambil harga bursa (IDR)
       const yearPrice =
         historicalPrices[year] && historicalPrices[year] > 0
           ? historicalPrices[year]
           : livePrice;
 
-      // PERBAIKAN: Izinkan kalkulasi berjalan walaupun net profit bernilai negatif (rugi)
       if (yearPrice > 0 && totalEquity > 0 && netProfitRealNum !== 0) {
         if (sharesOutstanding > 0) {
-          // Hitung EPS Rupiah dari pembagian Net Profit dan Shares Outstanding
           const rawCalculatedEps = netProfitRealNum / sharesOutstanding;
           const normalizedEps = rawCalculatedEps * dynamicCurrencyMultiplier;
-
           historyYear.eps = normalizedEps;
-
-          // FIX PER: Bisa menghasilkan nilai negatif jika emiten sedang rugi harian
           historyYear.per =
             normalizedEps !== 0
               ? parseFloat((yearPrice / normalizedEps).toFixed(2))
               : 0;
 
-          // FIX PBV: Hitung langsung dari Book Value per Share riil untuk memutus distorsi rumus triangulasi PER
           const bookValuePerShare =
             (totalEquity * dynamicCurrencyMultiplier) / sharesOutstanding;
           historyYear.pbv =
@@ -241,19 +258,14 @@ export async function scrapeFundamentalYahoo(
               ? parseFloat((yearPrice / bookValuePerShare).toFixed(2))
               : 0;
         } else {
-          // FALLBACK JIKA BARIS SHARES OUTSTANDING ABSEN
           let normalizedEps = rawEps * dynamicCurrencyMultiplier;
-
           if (normalizedEps === 0) {
-            // Jika rawEps bawaan 0 tapi untung/rugi ada, gunakan PE bayangan 15x (atau -15x jika rugi)
             const directionalPer = netProfitRealNum > 0 ? 15 : -15;
             normalizedEps = yearPrice / directionalPer;
           }
-
           historyYear.eps = normalizedEps;
           historyYear.per = parseFloat((yearPrice / normalizedEps).toFixed(2));
 
-          // Gunakan triangulasi hanya jika terpaksa karena tidak punya shares outstanding
           const calculatedPbv = historyYear.per * (historyYear.roe / 100);
           historyYear.pbv =
             calculatedPbv > 0 ? parseFloat(calculatedPbv.toFixed(2)) : 0;
@@ -263,8 +275,6 @@ export async function scrapeFundamentalYahoo(
         historyYear.per = 0;
         historyYear.pbv = 0;
       }
-
-      // Bersihkan temporary key agar database tetap ramping
       delete (historyYear as any).shares_outstanding;
     }
 
