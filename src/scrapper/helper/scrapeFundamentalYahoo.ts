@@ -1,8 +1,12 @@
 import { YAHOO_HEADERS } from "../../config";
 import type { YahooFinancialHistory } from "../../types";
 import * as cheerio from "cheerio";
+import { parseRawMoney } from "../../utils/parseMoney";
 
-// Helper untuk mendapatkan kurs per tahun
+// ============================================================================
+// 1. UTILITIES & HELPERS
+// ============================================================================
+
 async function getYearlyRate(year: number): Promise<number> {
   const rates: Record<number, number> = {
     2026: 16200,
@@ -15,270 +19,282 @@ async function getYearlyRate(year: number): Promise<number> {
   return rates[year] || 16000;
 }
 
-/**
- * 5. CORE PARSER & SCRAPER GABUNGAN YAHOO FINANCE
- */
-export async function scrapeFundamentalYahoo(
-  code: string,
-): Promise<Record<number, YahooFinancialHistory> | null> {
-  const symbol =
-    code.toUpperCase() === "IHSG" ? "^JKSE" : `${code.toUpperCase()}.JK`;
+// ============================================================================
+// 2. NETWORK FETCHERS
+// ============================================================================
+
+async function fetchYahooHtmlPages(symbol: string): Promise<string[]> {
   const urls = [
     `https://finance.yahoo.com/quote/${symbol}/financials`,
     `https://finance.yahoo.com/quote/${symbol}/balance-sheet`,
     `https://finance.yahoo.com/quote/${symbol}/cash-flow`,
   ];
 
-  try {
-    const htmlSections: string[] = [];
-    for (const url of urls) {
-      const res = await fetch(url, { headers: YAHOO_HEADERS });
-      const htmlText = res.ok ? await res.text() : "";
-      htmlSections.push(htmlText);
-      const delay = Math.floor(Math.random() * (100 - 50 + 1)) + 50;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
+  const htmlSections: string[] = [];
+  for (const url of urls) {
+    const res = await fetch(url, { headers: YAHOO_HEADERS });
+    htmlSections.push(res.ok ? await res.text() : "");
+    const delay = Math.floor(Math.random() * (100 - 50 + 1)) + 50;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+  return htmlSections;
+}
 
-    // Deteksi Mata Uang Global
-    const firstValidHtml = htmlSections.find((html) => html.length > 0) || "";
-    const $global = cheerio.load(firstValidHtml);
-    const globalCurrencyText = $global("span")
-      .filter((_, el) => $global(el).text().includes("Currency in"))
+async function fetchHistoricalPrices(symbol: string) {
+  const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=5y&interval=1d`;
+  const chartRes = await fetch(chartUrl, {
+    headers: {
+      "User-Agent": YAHOO_HEADERS["User-Agent"],
+      Referer: "https://finance.yahoo.com/",
+    },
+  });
+
+  const historicalPrices: Record<number, number> = {};
+  let livePrice = 0;
+
+  if (chartRes.ok) {
+    const chartBody: any = await chartRes.json();
+    const result = chartBody?.chart?.result?.[0];
+
+    if (result) {
+      livePrice = parseFloat(result.meta?.regularMarketPrice ?? 0);
+      const timestamps = (result.timestamp as number[]) ?? [];
+      const closePrices =
+        (result.indicators?.quote?.[0]?.close as (number | null)[]) ?? [];
+
+      timestamps.forEach((ts, idx) => {
+        const price = closePrices[idx];
+        if (typeof price === "number" && price > 0) {
+          const year = new Date(ts * 1000).getFullYear();
+          historicalPrices[year] = price;
+        }
+      });
+    }
+  }
+
+  return { historicalPrices, livePrice };
+}
+
+// ============================================================================
+// 3. DATA PARSERS (DOM)
+// ============================================================================
+
+async function parseYahooFinancialTables(htmlSections: string[]) {
+  const firstValidHtml = htmlSections.find((html) => html.length > 0) || "";
+  const $global = cheerio.load(firstValidHtml);
+  const globalCurrencyText = $global("span")
+    .filter((_, el) => $global(el).text().includes("Currency in"))
+    .text();
+  const isUSD = globalCurrencyText.includes("USD");
+
+  const finalHistory: Record<number, any> = {};
+  const metricMapping: Record<string, string> = {
+    "Total Revenue": "revenue",
+    "Net Income Common Stockholders": "net_profit",
+    "Operating Income": "operating_income",
+    "Free Cash Flow": "free_cash_flow",
+    "Capital Expenditure": "capital_expenditure",
+    "Interest Expense": "interest_expense",
+    "Basic EPS": "eps",
+    EBITDA: "ebitda",
+    "Total Assets": "total_assets",
+    "Total Equity Gross Minority Interest": "total_equity",
+    "Total Debt": "total_debt",
+    "End Cash Position": "cash",
+    "Ordinary Shares Number": "shares_outstanding",
+  };
+
+  for (let i = 0; i < 3; i++) {
+    const html = htmlSections[i];
+    if (!html) continue;
+
+    const $ = cheerio.load(html);
+    const pageCurrencyText = $("span")
+      .filter((_, el) => $(el).text().includes("Currency in"))
       .text();
-    const isUSD = globalCurrencyText.includes("USD");
-    console.log(`[Scraper] Currency detected: ${isUSD ? "USD" : "IDR"}`);
+    const isThousands = pageCurrencyText.toLowerCase().includes("thousands");
 
-    const finalHistory: Record<
-      number,
-      YahooFinancialHistory & { shares_outstanding?: number }
-    > = {};
+    const currentTablePeriods: { index: number; year: number | string }[] = [];
 
-    const metricMapping: Record<
-      string,
-      keyof YahooFinancialHistory | "shares_outstanding"
-    > = {
-      "Total Revenue": "revenue",
-      "Net Income Common Stockholders": "net_profit",
-      "Operating Income": "operating_income",
-      "Free Cash Flow": "free_cash_flow",
-      "Capital Expenditure": "capital_expenditure",
-      "Interest Expense": "interest_expense",
-      "Basic EPS": "eps",
-      EBITDA: "ebitda",
-      "Total Assets": "total_assets",
-      "Total Equity Gross Minority Interest": "total_equity",
-      "Total Debt": "total_debt",
-      "End Cash Position": "cash",
-      "Ordinary Shares Number": "shares_outstanding",
-    };
-
-    // FUNGSI BARU: Menangani skala ribuan (Thousands)
-    function cleanValue(raw: string, isThousands: boolean): number {
-      const cleanStr = raw.trim().replace(/,/g, "");
-      if (cleanStr === "--" || cleanStr === "") return 0;
-
-      if (cleanStr.endsWith("T"))
-        return parseFloat(cleanStr) * 1_000_000_000_000;
-      if (cleanStr.endsWith("B")) return parseFloat(cleanStr) * 1_000_000_000;
-      if (cleanStr.endsWith("M")) return parseFloat(cleanStr) * 1_000_000;
-
-      const parsed = parseFloat(cleanStr);
-      return isThousands ? parsed * 1000 : parsed;
-    }
-
-    for (let i = 0; i < 3; i++) {
-      const html = htmlSections[i];
-      if (!html) continue;
-
-      const $ = cheerio.load(html);
-
-      // Cek apakah halaman ini menggunakan skala "in thousands"
-      const pageCurrencyText = $("span")
-        .filter((_, el) => $(el).text().includes("Currency in"))
-        .text();
-      const isThousands = pageCurrencyText.toLowerCase().includes("thousands");
-
-      const currentTablePeriods: { index: number; year: number | string }[] =
-        [];
-
-      $(".tableHeader .row .column").each((idx, el) => {
-        const text = $(el).text()?.trim() ?? "";
-        if (!text || text === "Breakdown") return;
-        const yearMatch = /(\d{4})/.exec(text);
-        if (yearMatch && yearMatch[1]) {
-          currentTablePeriods.push({
-            index: idx,
-            year: parseInt(yearMatch[1]),
-          });
-        } else if (text.toUpperCase() === "TTM") {
-          currentTablePeriods.push({ index: idx, year: "TTM" });
-        }
-      });
-
-      // 1. PRE-FETCH MULTIPLIER SEBELUM LOOP DATA
-      // Menyelesaikan TS Error 1308 tanpa mengorbankan fungsionalitas
-      const yearMultipliers: Record<number, number> = {};
-      for (const col of currentTablePeriods) {
-        if (col.year !== "TTM") {
-          const y = col.year as number;
-          yearMultipliers[y] = isUSD ? await getYearlyRate(y) : 1;
-        }
+    $(".tableHeader .row .column").each((idx, el) => {
+      const text = $(el).text()?.trim() ?? "";
+      if (!text || text === "Breakdown") return;
+      const yearMatch = /(\d{4})/.exec(text);
+      if (yearMatch && yearMatch[1]) {
+        currentTablePeriods.push({ index: idx, year: parseInt(yearMatch[1]) });
+      } else if (text.toUpperCase() === "TTM") {
+        currentTablePeriods.push({ index: idx, year: "TTM" });
       }
-
-      // 2. LOOP PARSING DATA SECARA SINKRON
-      $(".tableBody .row").each((_, rowEl) => {
-        const title = $(rowEl).find(".rowTitle").text().trim();
-        const targetKey = metricMapping[title];
-
-        if (targetKey) {
-          const columns = $(rowEl).find(".column");
-
-          currentTablePeriods.forEach((col) => {
-            if (col.year === "TTM") return;
-            const year = col.year as number;
-
-            const rawText = $(columns[col.index]).text().trim();
-            const cleaned = cleanValue(rawText, isThousands); // Gunakan flag ribuan
-
-            const multiplier = yearMultipliers[year] || 1;
-            const convertedValue =
-              targetKey === "shares_outstanding"
-                ? cleaned
-                : cleaned * multiplier;
-
-            if (!finalHistory[year]) {
-              finalHistory[year] = {
-                revenue: "",
-                net_profit: "",
-                eps: 0,
-                ebitda: 0,
-                total_assets: 0,
-                total_equity: 0,
-                total_debt: 0,
-                cash: 0,
-                roe: 0,
-                der: 0,
-                per: 0,
-                pbv: 0,
-                operating_income: 0,
-                interest_expense: 0,
-                capital_expenditure: 0,
-                free_cash_flow: 0,
-              };
-            }
-
-            if (targetKey === "revenue" || targetKey === "net_profit") {
-              finalHistory[year][targetKey] = String(convertedValue);
-            } else {
-              (finalHistory[year] as any)[targetKey] = convertedValue;
-            }
-          });
-        }
-      });
-    }
-
-    if (Object.keys(finalHistory).length === 0) return null;
-
-    // --- PROSES AMBIL HARGA HISTORIS ---
-    const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=5y&interval=1d`;
-    const chartRes = await fetch(chartUrl, {
-      headers: {
-        "User-Agent": YAHOO_HEADERS["User-Agent"],
-        Referer: "https://finance.yahoo.com/",
-      },
     });
 
-    const historicalPrices: Record<number, number> = {};
-    let livePrice = 0;
+    const yearMultipliers: Record<number, number> = {};
+    for (const col of currentTablePeriods) {
+      if (col.year !== "TTM") {
+        const y = col.year as number;
+        yearMultipliers[y] = isUSD ? await getYearlyRate(y) : 1;
+      }
+    }
 
-    if (chartRes.ok) {
-      const chartBody: any = await chartRes.json();
-      const result = chartBody?.chart?.result?.[0];
+    $(".tableBody .row").each((_, rowEl) => {
+      const title = $(rowEl).find(".rowTitle").text().trim();
+      const targetKey = metricMapping[title];
 
-      if (result) {
-        livePrice = parseFloat(result.meta?.regularMarketPrice ?? 0);
-        const timestamps = (result.timestamp as number[]) ?? [];
-        const closePrices =
-          (result.indicators?.quote?.[0]?.close as (number | null)[]) ?? [];
+      if (targetKey) {
+        const columns = $(rowEl).find(".column");
 
-        timestamps.forEach((ts, idx) => {
-          const price = closePrices[idx];
-          if (typeof price === "number" && price > 0) {
-            const year = new Date(ts * 1000).getFullYear();
-            historicalPrices[year] = price;
+        currentTablePeriods.forEach((col) => {
+          if (col.year === "TTM") return;
+          const year = col.year as number;
+
+          const rawText = $(columns[col.index]).text().trim();
+          const cleaned = parseRawMoney(rawText, isThousands);
+
+          const multiplier = yearMultipliers[year] || 1;
+          const convertedValue =
+            targetKey === "shares_outstanding" ? cleaned : cleaned * multiplier;
+
+          if (!finalHistory[year]) {
+            finalHistory[year] = {
+              revenue: "",
+              net_profit: "",
+              eps: 0,
+              ebitda: 0,
+              total_assets: 0,
+              total_equity: 0,
+              total_debt: 0,
+              cash: 0,
+              roe: 0,
+              der: 0,
+              per: 0,
+              pbv: 0,
+              operating_income: 0,
+              interest_expense: 0,
+              capital_expenditure: 0,
+              free_cash_flow: 0,
+            };
+          }
+
+          if (targetKey === "revenue" || targetKey === "net_profit") {
+            finalHistory[year][targetKey] = String(convertedValue);
+          } else {
+            finalHistory[year][targetKey] = convertedValue;
           }
         });
       }
-    }
+    });
+  }
 
-    // --- PROSES KALKULASI RASIO ---
-    const getEffectiveRate = async (year: number) => {
-      return isUSD ? await getYearlyRate(year) : 1;
-    };
+  return { parsedData: finalHistory, isUSD };
+}
 
-    for (const [yearStr, values] of Object.entries(finalHistory)) {
-      const year = parseInt(yearStr);
-      const historyYear = finalHistory[year];
-      if (!historyYear) continue;
+// ============================================================================
+// 4. BUSINESS LOGIC (RATIO CALCULATOR)
+// ============================================================================
 
-      const dynamicCurrencyMultiplier = await getEffectiveRate(year);
+async function calculateFinancialRatios(
+  parsedData: Record<number, any>,
+  historicalPrices: Record<number, number>,
+  livePrice: number,
+  isUSD: boolean,
+): Promise<Record<number, YahooFinancialHistory>> {
+  const getEffectiveRate = async (year: number) =>
+    isUSD ? await getYearlyRate(year) : 1;
 
-      const totalEquity = Number(values.total_equity ?? 0);
-      const totalDebt = Number(values.total_debt ?? 0);
-      const rawEps = Number(values.eps ?? 0);
-      const netProfitRealNum = Number(values.net_profit ?? 0);
-      const sharesOutstanding = Number(values.shares_outstanding ?? 0);
+  for (const [yearStr, values] of Object.entries(parsedData)) {
+    const year = parseInt(yearStr);
+    const historyYear = parsedData[year];
 
-      historyYear.roe =
-        totalEquity > 0
-          ? parseFloat(((netProfitRealNum / totalEquity) * 100).toFixed(2))
-          : 0;
-      historyYear.der =
-        totalEquity > 0 ? parseFloat((totalDebt / totalEquity).toFixed(2)) : 0;
+    const dynamicCurrencyMultiplier = await getEffectiveRate(year);
+    const totalEquity = Number(values.total_equity ?? 0);
+    const totalDebt = Number(values.total_debt ?? 0);
+    const rawEps = Number(values.eps ?? 0);
+    const netProfitRealNum = Number(values.net_profit ?? 0);
+    const sharesOutstanding = Number(values.shares_outstanding ?? 0);
 
-      const yearPrice =
-        historicalPrices[year] && historicalPrices[year] > 0
-          ? historicalPrices[year]
-          : livePrice;
+    historyYear.roe =
+      totalEquity > 0
+        ? parseFloat(((netProfitRealNum / totalEquity) * 100).toFixed(2))
+        : 0;
+    historyYear.der =
+      totalEquity > 0 ? parseFloat((totalDebt / totalEquity).toFixed(2)) : 0;
 
-      if (yearPrice > 0 && totalEquity > 0 && netProfitRealNum !== 0) {
-        if (sharesOutstanding > 0) {
-          const rawCalculatedEps = netProfitRealNum / sharesOutstanding;
-          const normalizedEps = rawCalculatedEps * dynamicCurrencyMultiplier;
-          historyYear.eps = normalizedEps;
-          historyYear.per =
-            normalizedEps !== 0
-              ? parseFloat((yearPrice / normalizedEps).toFixed(2))
-              : 0;
+    const yearPrice =
+      historicalPrices[year] && historicalPrices[year] > 0
+        ? historicalPrices[year]
+        : livePrice;
 
-          const bookValuePerShare =
-            (totalEquity * dynamicCurrencyMultiplier) / sharesOutstanding;
-          historyYear.pbv =
-            bookValuePerShare > 0
-              ? parseFloat((yearPrice / bookValuePerShare).toFixed(2))
-              : 0;
-        } else {
-          let normalizedEps = rawEps * dynamicCurrencyMultiplier;
-          if (normalizedEps === 0) {
-            const directionalPer = netProfitRealNum > 0 ? 15 : -15;
-            normalizedEps = yearPrice / directionalPer;
-          }
-          historyYear.eps = normalizedEps;
-          historyYear.per = parseFloat((yearPrice / normalizedEps).toFixed(2));
+    if (yearPrice > 0 && totalEquity > 0 && netProfitRealNum !== 0) {
+      if (sharesOutstanding > 0) {
+        const rawCalculatedEps = netProfitRealNum / sharesOutstanding;
+        const normalizedEps = rawCalculatedEps * dynamicCurrencyMultiplier;
+        historyYear.eps = normalizedEps;
+        historyYear.per =
+          normalizedEps !== 0
+            ? parseFloat((yearPrice / normalizedEps).toFixed(2))
+            : 0;
 
-          const calculatedPbv = historyYear.per * (historyYear.roe / 100);
-          historyYear.pbv =
-            calculatedPbv > 0 ? parseFloat(calculatedPbv.toFixed(2)) : 0;
-        }
+        const bookValuePerShare =
+          (totalEquity * dynamicCurrencyMultiplier) / sharesOutstanding;
+        historyYear.pbv =
+          bookValuePerShare > 0
+            ? parseFloat((yearPrice / bookValuePerShare).toFixed(2))
+            : 0;
       } else {
-        historyYear.eps = 0;
-        historyYear.per = 0;
-        historyYear.pbv = 0;
+        let normalizedEps = rawEps * dynamicCurrencyMultiplier;
+        if (normalizedEps === 0) {
+          const directionalPer = netProfitRealNum > 0 ? 15 : -15;
+          normalizedEps = yearPrice / directionalPer;
+        }
+        historyYear.eps = normalizedEps;
+        historyYear.per = parseFloat((yearPrice / normalizedEps).toFixed(2));
+
+        const calculatedPbv = historyYear.per * (historyYear.roe / 100);
+        historyYear.pbv =
+          calculatedPbv > 0 ? parseFloat(calculatedPbv.toFixed(2)) : 0;
       }
-      delete (historyYear as any).shares_outstanding;
+    } else {
+      historyYear.eps = 0;
+      historyYear.per = 0;
+      historyYear.pbv = 0;
     }
 
-    return Object.keys(finalHistory).length > 0 ? (finalHistory as any) : null;
+    // Hapus shares_outstanding karena tidak ada di interface YahooFinancialHistory
+    delete historyYear.shares_outstanding;
+  }
+
+  return parsedData as Record<number, YahooFinancialHistory>;
+}
+
+// ============================================================================
+// 5. MAIN ORCHESTRATOR (FUNGSI YANG DIPANGGIL DARI LUAR)
+// ============================================================================
+
+export async function scrapeFundamentalYahoo(
+  code: string,
+): Promise<Record<number, YahooFinancialHistory> | null> {
+  const symbol =
+    code.toUpperCase() === "IHSG" ? "^JKSE" : `${code.toUpperCase()}.JK`;
+
+  try {
+    // 1. Ambil HTML Pages (Network)
+    const htmlSections = await fetchYahooHtmlPages(symbol);
+
+    // 2. Parsing HTML ke Data Mentah (DOM/Cheerio)
+    const { parsedData, isUSD } = await parseYahooFinancialTables(htmlSections);
+    if (Object.keys(parsedData).length === 0) return null;
+
+    // 3. Ambil Harga Saham (Network API)
+    const { historicalPrices, livePrice } = await fetchHistoricalPrices(symbol);
+
+    // 4. Kalkulasi Akhir & Formatting (Business Logic)
+    const finalData = await calculateFinancialRatios(
+      parsedData,
+      historicalPrices,
+      livePrice,
+      isUSD,
+    );
+
+    return finalData;
   } catch (error) {
     console.error(`[Scraper] Yahoo Financials Scrape Error:`, error);
     return null;

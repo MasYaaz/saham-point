@@ -1,5 +1,6 @@
 import type { YahooProfileData } from "../../types";
 import * as cheerio from "cheerio";
+import { parseRawMoney } from "../../utils/parseMoney";
 
 /**
  * 6. Scraper Profil & Statistik Tambahan Yahoo
@@ -21,28 +22,19 @@ export function scrapeProfileYahoo(html: string): YahooProfileData {
     .trim();
   if (descText) data.description = descText.replace(/\s+/g, " ");
 
-  function parseYahooNum(text: string): number {
-    const cleanStr = text.trim().replace(/,/g, "");
-    if (cleanStr === "--" || cleanStr === "") return 0;
-    if (cleanStr.endsWith("T")) return parseFloat(cleanStr) * 1_000_000_000_000;
-    if (cleanStr.endsWith("B")) return parseFloat(cleanStr) * 1_000_000_000;
-    if (cleanStr.endsWith("M")) return parseFloat(cleanStr) * 1_000_000;
-    return parseFloat(cleanStr);
-  }
-
   $("section.quote-statistics-container ul li").each((_, el) => {
     const label = $(el).find(".label").text().trim().toLowerCase();
     const valueText = $(el).find(".value").text().trim();
 
     if (label.includes("market cap"))
-      data.market_cap = parseYahooNum(valueText);
-    else if (label.includes("beta")) data.beta = parseYahooNum(valueText);
-    else if (label.includes("pe ratio")) data.per = parseYahooNum(valueText);
-    else if (label.includes("eps")) data.eps = parseYahooNum(valueText);
+      data.market_cap = parseRawMoney(valueText);
+    else if (label.includes("beta")) data.beta = parseRawMoney(valueText);
+    else if (label.includes("pe ratio")) data.per = parseRawMoney(valueText);
+    else if (label.includes("eps")) data.eps = parseRawMoney(valueText);
     else if (label.includes("forward dividend")) {
       const divMatch = /^([\d\.,]+)/.exec(valueText);
       if (divMatch && divMatch[1])
-        data.last_dividend = parseYahooNum(divMatch[1]);
+        data.last_dividend = parseRawMoney(divMatch[1]);
     }
   });
 
