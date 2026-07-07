@@ -16,12 +16,18 @@ export async function runFundamentalCli(
     batchProcessed: number,
     currentLimit: number,
   ) => void,
-): Promise<void> {
+): Promise<{ updated: boolean }> {
+  // 1. Cek apakah ada data yang perlu diupdate (Fallback Awal)
+  const sisaAwal = getSisaAntrean();
+  if (sisaAwal === 0) {
+    return { updated: false };
+  }
+
   const originalWarn = console.warn;
   console.warn = () => {};
-
   const startTime = performance.now();
   const BATCH_SIZE = 20;
+
   let totalSuccessGlobal = 0;
   let totalFailGlobal = 0;
   const allFailedLogs: string[] = [];
@@ -34,19 +40,15 @@ export async function runFundamentalCli(
   function getSisaAntrean(): number {
     const row = db
       .query(
-        `
-      SELECT COUNT(*) as sisa FROM emiten e
-      LEFT JOIN (
-        SELECT emiten_id, COUNT(*) as total FROM stock_histories WHERE period = 'FY' GROUP BY emiten_id
-      ) h ON e.id = h.emiten_id
-      WHERE IFNULL(h.total, 0) < 4 OR e.fundamental_updated_at = '2000-01-01 00:00:00'
-    `,
+        `SELECT COUNT(*) as sisa FROM emiten 
+       WHERE fundamental_updated_at < date('now', '-3 months') 
+       OR fundamental_updated_at IS NULL`,
       )
       .get() as { sisa: number } | undefined;
     return row?.sisa ?? 0;
   }
 
-  // Loop utama dikendalikan penuh oleh status ON/OFF sakelar
+  // Loop utama
   while (fundamentalSyncState.isActive) {
     const sisaAwalBatch = getSisaAntrean();
     if (sisaAwalBatch === 0) {
@@ -57,19 +59,16 @@ export async function runFundamentalCli(
     let batchProcessed = 0;
     const currentLimit = Math.min(BATCH_SIZE, sisaAwalBatch);
 
-    // Kirim callback yang peka terhadap perubahan sakelar di tengah jalan
     const result = await syncDataAll(
       currentLimit,
       (_currentSuccess, totalEmiten, code, status) => {
         batchProcessed++;
-
         const sisaTerkini = sisaAwalBatch - batchProcessed;
         const sudahTerprosesGlobal = Math.max(
           0,
           totalEmitenGlobal - sisaTerkini,
         );
 
-        // Jika di tengah-tengah batch user menekan F (Menginginkan OFF), interupsi visualnya
         if (!fundamentalSyncState.isActive) return;
 
         onProgressUpdate(
@@ -84,10 +83,7 @@ export async function runFundamentalCli(
       },
     );
 
-    // Cek apakah di tengah jalan sakelar dimatikan
-    if (!fundamentalSyncState.isActive) {
-      break;
-    }
+    if (!fundamentalSyncState.isActive) break;
 
     totalSuccessGlobal += result.success;
     totalFailGlobal += result.fail;
@@ -95,7 +91,7 @@ export async function runFundamentalCli(
       allFailedLogs.push(...result.failedLogs);
     }
 
-    // Jeda aman antar batch yang bisa di-cancel instant
+    // Jeda aman antar batch
     for (let i = 0; i < 20; i++) {
       if (!fundamentalSyncState.isActive) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -104,13 +100,11 @@ export async function runFundamentalCli(
 
   console.warn = originalWarn;
 
-  // Cetak rekap hanya jika database benar-benar tamat 100%
-  if (getSisaAntrean() === 0) {
+  // Cetak rekap hanya jika proses selesai secara natural
+  if (fundamentalSyncState.isActive && getSisaAntrean() === 0) {
     const endTime = performance.now();
     const duration = ((endTime - startTime) / 1000 / 60).toFixed(2);
-    console.log(
-      `\n\n🏆 [TAMAT] Seluruh data emiten di database berhasil diproses hingga 100%!`,
-    );
+    console.log(`\n\n🏆 [TAMAT] Seluruh data emiten berhasil disinkronisasi!`);
     console.log(
       `───────────────────────────────────────────────────────────────`,
     );
@@ -121,4 +115,6 @@ export async function runFundamentalCli(
       `───────────────────────────────────────────────────────────────\n`,
     );
   }
+
+  return { updated: true };
 }

@@ -36,9 +36,8 @@ db.run(`
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
   );
+  CREATE INDEX IF NOT EXISTS idx_emiten_sector ON emiten(sector);
 `);
-
-db.run(`CREATE INDEX IF NOT EXISTS idx_emiten_sector ON emiten(sector);`);
 
 async function initializeAllStocks(database: Database): Promise<void> {
   // Cek apakah tabel emiten masih kosong dengan type casting yang jelas
@@ -118,22 +117,20 @@ db.run(`
     der NUMERIC DEFAULT 0.00,
     pbv NUMERIC DEFAULT 0.00,
     per NUMERIC DEFAULT 0.00,
+    operating_income NUMERIC DEFAULT 0.00,
+    ebitda NUMERIC DEFAULT 0.00,
+    free_cash_flow NUMERIC DEFAULT 0.00,
+    capital_expenditure NUMERIC DEFAULT 0.00,
+    interest_expense NUMERIC DEFAULT 0.00,
+    total_assets NUMERIC DEFAULT 0.00,
+    total_debt NUMERIC DEFAULT 0.00,
+    cash NUMERIC DEFAULT 0.00,
     created_at TEXT,
     updated_at TEXT,
     FOREIGN KEY(emiten_id) REFERENCES emiten(id) ON DELETE CASCADE,
     UNIQUE(emiten_id, period, year)
   );
-`);
-
-db.run(`
-  ALTER TABLE stock_histories ADD COLUMN operating_income NUMERIC DEFAULT 0.00;
-  ALTER TABLE stock_histories ADD COLUMN ebitda NUMERIC DEFAULT 0.00;
-  ALTER TABLE stock_histories ADD COLUMN free_cash_flow NUMERIC DEFAULT 0.00;
-  ALTER TABLE stock_histories ADD COLUMN capital_expenditure NUMERIC DEFAULT 0.00;
-  ALTER TABLE stock_histories ADD COLUMN interest_expense NUMERIC DEFAULT 0.00;
-  ALTER TABLE stock_histories ADD COLUMN total_assets NUMERIC DEFAULT 0.00;
-  ALTER TABLE stock_histories ADD COLUMN total_debt NUMERIC DEFAULT 0.00;
-  ALTER TABLE stock_histories ADD COLUMN cash NUMERIC DEFAULT 0.00;
+  CREATE INDEX IF NOT EXISTS idx_histories_emiten_year ON stock_histories(emiten_id, year);
 `);
 
 export default db;

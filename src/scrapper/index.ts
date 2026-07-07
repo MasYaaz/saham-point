@@ -61,15 +61,26 @@ export async function syncDataAll(
   // 2. Ambil antrean berdasarkan data fundamental yang paling usang atau histori belum lengkap
   const queue = db
     .query(
-      `
-      SELECT e.id, e.code, e.description, e.last_price, e.beta, e.pbv, e.per, e.roe, e.der, e.price_updated_at, e.fundamental_updated_at 
-      FROM emiten e
-      LEFT JOIN (
-        SELECT emiten_id, COUNT(*) as total FROM stock_histories WHERE period = 'FY' GROUP BY emiten_id
-      ) h ON e.id = h.emiten_id
-      ORDER BY CASE WHEN IFNULL(h.total, 0) < 4 THEN 0 ELSE 1 END ASC, e.fundamental_updated_at ASC
-      LIMIT ?
-      `,
+      ` 
+        SELECT e.id, e.code, e.description, e.last_price, e.beta, e.pbv, 
+              e.per, e.roe, e.der, e.price_updated_at, e.fundamental_updated_at 
+        FROM emiten e 
+        LEFT JOIN ( 
+            SELECT emiten_id, COUNT(*) as total 
+            FROM stock_histories 
+            WHERE period = 'FY' 
+            GROUP BY emiten_id 
+        ) h ON e.id = h.emiten_id 
+        -- Tambahkan filter di bawah ini:
+        WHERE e.fundamental_updated_at < date('now', '-3 months') 
+          OR e.fundamental_updated_at IS NULL
+        ORDER BY CASE 
+            WHEN IFNULL(h.total, 0) < 4 THEN 0 
+            ELSE 1 
+        END ASC, 
+        e.fundamental_updated_at ASC 
+        LIMIT ? 
+    `,
     )
     .all(limit) as EmitenItem[];
 
