@@ -1,6 +1,7 @@
 // src/server.ts
 import { Hono } from "hono";
 import db from "./db";
+import type { YahooChartResponse } from "./types";
 
 const app = new Hono();
 
@@ -56,6 +57,24 @@ app.get("/api", (c) => {
           },
         },
         {
+          path: "/api/saham/:code/growth",
+          method: "GET",
+          description:
+            "Menganalisis tren pertumbuhan pendapatan dan laba bersih (YoY) selama 5 tahun terakhir.",
+          parameters: {
+            code: { type: "path_parameter", required: true, example: "BBRI" },
+          },
+        },
+        {
+          path: "/api/saham/:code/valuation",
+          method: "GET",
+          description:
+            "Estimasi harga wajar emiten berdasarkan perbandingan PER saat ini dengan rata-rata PER historis 5 tahun.",
+          parameters: {
+            code: { type: "path_parameter", required: true, example: "BBRI" },
+          },
+        },
+        {
           path: "/api/sektor/:name",
           method: "GET",
           description:
@@ -67,6 +86,13 @@ app.get("/api", (c) => {
               example: "Banking",
             },
           },
+        },
+        {
+          path: "/api/screener/growth",
+          method: "GET",
+          description:
+            "Menyaring emiten yang menunjukkan pertumbuhan laba bersih konsisten dari tahun ke tahun.",
+          parameters: {},
         },
         {
           path: "/api/screener/undervalued",
@@ -121,6 +147,32 @@ app.get("/api", (c) => {
           },
         },
         {
+          path: "/api/technical/:code",
+          method: "GET",
+          description:
+            "Mengambil data historis candlestick (OHLCV) dari Yahoo Finance untuk kebutuhan chart teknikal.",
+          parameters: {
+            code: { type: "path_parameter", required: true, example: "BBRI" },
+            range: {
+              type: "query_string",
+              required: false,
+              options: [
+                "1d",
+                "5d",
+                "1mo",
+                "3mo",
+                "6mo",
+                "1y",
+                "2y",
+                "5y",
+                "10y",
+                "max",
+              ],
+              default: "1mo",
+            },
+          },
+        },
+        {
           path: "/api/diagnostics/stale",
           method: "GET",
           description:
@@ -139,6 +191,7 @@ app.get("/api", (c) => {
   });
 });
 
+app.get("/", (c) => c.redirect("/api"));
 app.get("/api/endpoints", (c) => c.redirect("/api"));
 
 /**
@@ -217,9 +270,8 @@ app.get("/api/screener/undervalued", (c) => {
 });
 
 /**
- * Endpoint BARU 3B: Screener Teknikal Harian (Technical Momentum Tracker)
- * Menyediakan beberapa strategi berdasarkan pergerakan harga harian (Live & Previous Session)
- * Pilihan strategi: ?strategy=breakout (Default) | ?strategy=reversal | ?strategy=volatile
+ * Endpoint 4: Screener Teknikal Harian (Technical Momentum Tracker)
+ * Pilihan strategi: ?strategy=breakout (default) | reversal | volatile
  */
 app.get("/api/screener/technical", (c) => {
   const strategy = c.req.query("strategy") ?? "breakout";
@@ -291,9 +343,8 @@ app.get("/api/screener/technical", (c) => {
 });
 
 /**
- * Endpoint BARU 3C: Pemburu Dividen Jumbo (Dividend Hunters)
- * Menyaring saham cash-rich yang membagikan dividen yield tinggi, tapi tetap sehat (DER wajar)
- * Parameter query opsional: ?min_yield=5.0
+ * Endpoint 5: Pemburu Dividen Jumbo (Dividend Hunters)
+ * Query opsional: ?min_yield=5.0
  */
 app.get("/api/screener/dividend-hunters", (c) => {
   const minYield = parseFloat(c.req.query("min_yield") ?? "5.0"); // Minimal yield 5%
@@ -320,9 +371,7 @@ app.get("/api/screener/dividend-hunters", (c) => {
   });
 });
 
-/**
- * Endpoint 4: Penguasa Pasar (Top Market Cap & Movers)
- */
+/** Endpoint 6: Penguasa Pasar (Top Market Cap & Movers) */
 app.get("/api/screener/rankings", (c) => {
   const sortBy = c.req.query("sort") ?? "market_cap";
   let queryStr = `
@@ -346,9 +395,178 @@ app.get("/api/screener/rankings", (c) => {
   });
 });
 
-/**
- * Endpoint 5: Pemantau Data Usang (Scraper Diagnostics)
- */
+/** Endpoint 7: Data Candlestick (OHLCV) dari Yahoo Finance untuk Chart Teknikal */
+app.get("/api/technical/:code", async (c) => {
+  const code = c.req.param("code").toUpperCase();
+  const range = c.req.query("range") ?? "1mo"; // Default 1 bulan
+
+  // Mapping range ke interval yang paling masuk akal
+  const intervalMap: Record<string, string> = {
+    // Intraday
+    "1d": "5m", // Harian (5 menit)
+    "5d": "15m", // 5 Hari (15 menit)
+
+    // Jangka Pendek
+    "1mo": "1d", // 1 Bulan (harian)
+    "3mo": "1d", // 3 Bulan (harian)
+
+    // Jangka Menengah
+    "6mo": "1wk", // 6 Bulan (mingguan)
+    "1y": "1wk", // 1 Tahun (mingguan)
+
+    // Jangka Panjang
+    "2y": "1mo", // 2 Tahun (bulanan)
+    "5y": "1mo", // 5 Tahun (bulanan)
+    "10y": "1mo", // 10 Tahun (bulanan)
+    max: "3mo", // Seluruh data (kuartalan)
+  };
+
+  const interval = intervalMap[range] ?? "1d";
+  const ticker = `${code}.JK`;
+
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`;
+
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+
+    const chartData = (await res.json()) as YahooChartResponse;
+    const result = chartData.chart?.result?.[0];
+
+    if (
+      !result?.meta ||
+      !result?.timestamp ||
+      !result?.indicators?.quote?.[0]
+    ) {
+      return c.json({ success: false, message: "Data tidak tersedia" }, 404);
+    }
+
+    const { meta, timestamp, indicators } = result;
+    const quotes = result?.indicators?.quote?.[0];
+
+    const history = timestamp.map((ts, index) => ({
+      date: new Date(ts * 1000).toISOString().split("T")[0],
+      open: quotes.open[index] ?? 0,
+      high: quotes.high[index] ?? 0,
+      low: quotes.low[index] ?? 0,
+      close: quotes.close[index] ?? 0,
+      volume: quotes.volume?.[index] ?? 0,
+    }));
+
+    return c.json({
+      success: true,
+      meta: { symbol: code, range, interval, currency: meta.currency },
+      data: history,
+    });
+  } catch (err: any) {
+    return c.json(
+      { success: false, message: "Gagal memproses", error: err.message },
+      500,
+    );
+  }
+});
+
+/** Endpoint 8: Analisis Pertumbuhan (Growth Trends) 5 Tahun Terakhir */
+app.get("/api/saham/:code/growth", (c) => {
+  const code = c.req.param("code").toUpperCase();
+  const emiten = db.query("SELECT id FROM emiten WHERE code = ?").get(code) as
+    | { id: number }
+    | undefined;
+
+  if (!emiten)
+    return c.json({ success: false, message: "Emiten tidak ditemukan" }, 404);
+
+  const histories = db
+    .query(
+      "SELECT year, revenue, net_profit FROM stock_histories WHERE emiten_id = ? ORDER BY year ASC",
+    )
+    .all(emiten.id) as { year: number; revenue: number; net_profit: number }[];
+
+  // Hitung persentase pertumbuhan tahun ke tahun (YoY Growth)
+  const growthTrends = histories.map((curr, idx, arr) => {
+    if (idx === 0) return { ...curr, revenue_growth: 0, profit_growth: 0 };
+    const prev = arr[idx - 1];
+
+    if (!prev) {
+      return { ...curr, revenue_growth: 0, profit_growth: 0 };
+    }
+
+    return {
+      ...curr,
+      revenue_growth: parseFloat(
+        (((curr.revenue - prev.revenue) / prev.revenue) * 100).toFixed(2),
+      ),
+      profit_growth: parseFloat(
+        (((curr.net_profit - prev.net_profit) / prev.net_profit) * 100).toFixed(
+          2,
+        ),
+      ),
+    };
+  });
+
+  return c.json({ success: true, code, trends: growthTrends });
+});
+
+/** Endpoint 9: Screener Emiten High-Growth (profit naik 2 tahun beruntun) */
+app.get("/api/screener/growth", (c) => {
+  // Logika: Mencari emiten yang profit 2025 > 2024 > 2023
+  const result = db
+    .query(
+      `
+    SELECT e.code, e.name, h1.net_profit as profit_2025, h2.net_profit as profit_2024
+    FROM emiten e
+    JOIN stock_histories h1 ON e.id = h1.emiten_id AND h1.year = 2025
+    JOIN stock_histories h2 ON e.id = h2.emiten_id AND h2.year = 2024
+    WHERE h1.net_profit > h2.net_profit
+    ORDER BY (h1.net_profit - h2.net_profit) / h2.net_profit DESC
+    LIMIT 20
+  `,
+    )
+    .all();
+
+  return c.json({ success: true, count: result.length, data: result });
+});
+
+/** Endpoint 10: Fair Value Estimate berdasarkan rata-rata PER historis */
+app.get("/api/saham/:code/valuation", (c) => {
+  const code = c.req.param("code").toUpperCase();
+
+  const data = db
+    .query(
+      `
+    SELECT e.last_price, e.per as current_per, 
+           AVG(h.per) as avg_5y_per
+    FROM emiten e
+    JOIN stock_histories h ON e.id = h.emiten_id
+    WHERE e.code = ?
+    GROUP BY e.id
+  `,
+    )
+    .get(code) as {
+    last_price: number;
+    current_per: number;
+    avg_5y_per: number;
+  };
+
+  if (!data)
+    return c.json({ success: false, message: "Data tidak cukup" }, 404);
+
+  const discount = data.avg_5y_per - data.current_per;
+  const status =
+    discount > 0 ? "Undervalued vs Historical" : "Overvalued vs Historical";
+
+  return c.json({
+    success: true,
+    code,
+    status,
+    current_per: data.current_per,
+    avg_historical_per: parseFloat(data.avg_5y_per.toFixed(2)),
+    potensi_upside_per: parseFloat(discount.toFixed(2)),
+  });
+});
+
+/** Endpoint 11: Pemantau Data Usang (Scraper Diagnostics) */
 app.get("/api/diagnostics/stale", (c) => {
   const staleFundamental = db
     .query(
@@ -369,9 +587,7 @@ app.get("/api/diagnostics/stale", (c) => {
   });
 });
 
-/**
- * Endpoint 6: Cek status database (Health Check)
- */
+/** Endpoint 12: Cek Status Database (Health Check) */
 app.get("/api/health", (c) => {
   const totalEmiten: any = db
     .query("SELECT COUNT(*) as total FROM emiten")

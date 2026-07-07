@@ -68,3 +68,25 @@ export interface YahooFinancialHistory {
   pbv?: number;
   per?: number;
 }
+
+export interface YahooChartResponse {
+  chart: {
+    result: Array<{
+      meta: {
+        regularMarketPrice: number;
+        previousClose: number;
+        currency: string;
+      };
+      timestamp: number[];
+      indicators: {
+        quote: Array<{
+          open: (number | null)[];
+          high: (number | null)[];
+          low: (number | null)[];
+          close: (number | null)[];
+          volume: (number | null)[];
+        }>;
+      };
+    }>;
+  };
+}
