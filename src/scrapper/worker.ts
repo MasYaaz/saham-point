@@ -12,14 +12,14 @@ export function initBackgroundWorker() {
   cron.schedule(
     "*/1 9-16 * * 1-5",
     async () => {
-      console.log(
-        "[Worker] Menjalankan antrean fetch harga saham real-time...",
-      );
+      // console.log(
+      //   "[Worker] Menjalankan antrean fetch harga saham real-time...",
+      // );
       try {
         const logStatus = await syncMarketPrices(30);
-        console.log(`${logStatus}`);
+        // console.log(`${logStatus}`);
       } catch (error) {
-        console.error("[Worker Error] Gagal mengeksekusi sync harga:", error);
+        // console.error("[Worker Error] Gagal mengeksekusi sync harga:", error);
       }
     },
     {
