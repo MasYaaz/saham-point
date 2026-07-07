@@ -151,7 +151,9 @@ async function parseYahooFinancialTables(htmlSections: string[]) {
 
           const multiplier = yearMultipliers[year] || 1;
           const convertedValue =
-            targetKey === "shares_outstanding" ? cleaned : cleaned * multiplier;
+            targetKey === "shares_outstanding"
+              ? cleaned
+              : parseFloat((cleaned * multiplier).toFixed(2));
 
           if (!finalHistory[year]) {
             finalHistory[year] = {
@@ -200,23 +202,24 @@ async function calculateFinancialRatios(
   const getEffectiveRate = async (year: number) =>
     isUSD ? await getYearlyRate(year) : 1;
 
+  // Helper untuk pembulatan 2 angka
+  const round2 = (num: number): number => parseFloat(num.toFixed(2));
+
   for (const [yearStr, values] of Object.entries(parsedData)) {
     const year = parseInt(yearStr);
     const historyYear = parsedData[year];
-
     const dynamicCurrencyMultiplier = await getEffectiveRate(year);
+
     const totalEquity = Number(values.total_equity ?? 0);
     const totalDebt = Number(values.total_debt ?? 0);
     const rawEps = Number(values.eps ?? 0);
     const netProfitRealNum = Number(values.net_profit ?? 0);
     const sharesOutstanding = Number(values.shares_outstanding ?? 0);
 
+    // Hitung ROE dan DER
     historyYear.roe =
-      totalEquity > 0
-        ? parseFloat(((netProfitRealNum / totalEquity) * 100).toFixed(2))
-        : 0;
-    historyYear.der =
-      totalEquity > 0 ? parseFloat((totalDebt / totalEquity).toFixed(2)) : 0;
+      totalEquity > 0 ? round2((netProfitRealNum / totalEquity) * 100) : 0;
+    historyYear.der = totalEquity > 0 ? round2(totalDebt / totalEquity) : 0;
 
     const yearPrice =
       historicalPrices[year] && historicalPrices[year] > 0
@@ -227,30 +230,28 @@ async function calculateFinancialRatios(
       if (sharesOutstanding > 0) {
         const rawCalculatedEps = netProfitRealNum / sharesOutstanding;
         const normalizedEps = rawCalculatedEps * dynamicCurrencyMultiplier;
-        historyYear.eps = normalizedEps;
+
+        historyYear.eps = round2(normalizedEps);
         historyYear.per =
-          normalizedEps !== 0
-            ? parseFloat((yearPrice / normalizedEps).toFixed(2))
-            : 0;
+          historyYear.eps !== 0 ? round2(yearPrice / historyYear.eps) : 0;
 
         const bookValuePerShare =
           (totalEquity * dynamicCurrencyMultiplier) / sharesOutstanding;
         historyYear.pbv =
-          bookValuePerShare > 0
-            ? parseFloat((yearPrice / bookValuePerShare).toFixed(2))
-            : 0;
+          bookValuePerShare > 0 ? round2(yearPrice / bookValuePerShare) : 0;
       } else {
         let normalizedEps = rawEps * dynamicCurrencyMultiplier;
         if (normalizedEps === 0) {
           const directionalPer = netProfitRealNum > 0 ? 15 : -15;
           normalizedEps = yearPrice / directionalPer;
         }
-        historyYear.eps = normalizedEps;
-        historyYear.per = parseFloat((yearPrice / normalizedEps).toFixed(2));
+
+        historyYear.eps = round2(normalizedEps);
+        historyYear.per =
+          historyYear.eps !== 0 ? round2(yearPrice / historyYear.eps) : 0;
 
         const calculatedPbv = historyYear.per * (historyYear.roe / 100);
-        historyYear.pbv =
-          calculatedPbv > 0 ? parseFloat(calculatedPbv.toFixed(2)) : 0;
+        historyYear.pbv = round2(calculatedPbv);
       }
     } else {
       historyYear.eps = 0;
@@ -258,7 +259,6 @@ async function calculateFinancialRatios(
       historyYear.pbv = 0;
     }
 
-    // Hapus shares_outstanding karena tidak ada di interface YahooFinancialHistory
     delete historyYear.shares_outstanding;
   }
 
@@ -293,7 +293,6 @@ export async function scrapeFundamentalYahoo(
       livePrice,
       isUSD,
     );
-
     return finalData;
   } catch (error) {
     console.error(`[Scraper] Yahoo Financials Scrape Error:`, error);

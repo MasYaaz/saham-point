@@ -118,10 +118,33 @@ export async function updateFundamental(code: string): Promise<boolean> {
 
       // Upsert data ke stock_histories
       const upsertHistory = db.prepare(`
-        INSERT INTO stock_histories (emiten_id, year, period, revenue, net_profit, eps, roe, der, pbv, per, created_at, updated_at)
-        VALUES ($emiten_id, $year, 'FY', $revenue, $net_profit, $eps, $roe, $der, $pbv, $per, $now, $now)
-        ON CONFLICT(emiten_id, period, year)
-        DO UPDATE SET revenue = excluded.revenue, net_profit = excluded.net_profit, eps = excluded.eps, roe = excluded.roe, der = excluded.der, pbv = excluded.pbv, per = excluded.per, updated_at = excluded.updated_at;
+        INSERT INTO stock_histories (
+          emiten_id, year, period, revenue, net_profit, eps, roe, der, pbv, per, 
+          operating_income, ebitda, free_cash_flow, capital_expenditure, 
+          interest_expense, total_assets, total_debt, cash, 
+          created_at, updated_at
+        ) VALUES (
+          $emiten_id, $year, 'FY', $revenue, $net_profit, $eps, $roe, $der, $pbv, $per,
+          $operating_income, $ebitda, $free_cash_flow, $capital_expenditure,
+          $interest_expense, $total_assets, $total_debt, $cash,
+          $now, $now
+        ) ON CONFLICT(emiten_id, period, year) DO UPDATE SET 
+          revenue = excluded.revenue,
+          net_profit = excluded.net_profit,
+          eps = excluded.eps,
+          roe = excluded.roe,
+          der = excluded.der,
+          pbv = excluded.pbv,
+          per = excluded.per,
+          operating_income = excluded.operating_income,
+          ebitda = excluded.ebitda,
+          free_cash_flow = excluded.free_cash_flow,
+          capital_expenditure = excluded.capital_expenditure,
+          interest_expense = excluded.interest_expense,
+          total_assets = excluded.total_assets,
+          total_debt = excluded.total_debt,
+          cash = excluded.cash,
+          updated_at = excluded.updated_at;
       `);
 
       for (const [yearStr, values] of Object.entries(scrapedYahooData)) {
@@ -135,6 +158,14 @@ export async function updateFundamental(code: string): Promise<boolean> {
           $der: values.der ?? 0,
           $pbv: values.pbv ?? 0,
           $per: values.per ?? 0,
+          $operating_income: values.operating_income ?? 0,
+          $ebitda: values.ebitda ?? 0,
+          $free_cash_flow: values.free_cash_flow ?? 0,
+          $capital_expenditure: values.capital_expenditure ?? 0,
+          $interest_expense: values.interest_expense ?? 0,
+          $total_assets: values.total_assets ?? 0,
+          $total_debt: values.total_debt ?? 0,
+          $cash: values.cash ?? 0,
           $now: nowStr,
         });
       }
