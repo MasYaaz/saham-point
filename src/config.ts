@@ -12,3 +12,5 @@ export const YAHOO_HEADERS = {
   "Cache-Control": "max-age=0",
   Connection: "keep-alive",
 };
+
+export const VERSION = "1.0.0";

@@ -1,0 +1,9 @@
+export const RESET = "\x1b[0m";
+export const BOLD = "\x1b[1m";
+export const GREEN = "\x1b[32m";
+export const RED = "\x1b[31m"; // Tambahkan RED sekalian untuk Market Status
+export const CYAN = "\x1b[36m";
+export const GRAY = "\x1b[90m";
+export const BG_GREEN = "\x1b[42m\x1b[30m";
+export const BG_RED = "\x1b[48;5;124m\x1b[37m";
+export const YELLOW = "\x1b[33m";
