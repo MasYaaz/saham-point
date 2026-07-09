@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   saham-point:
     build: .
@@ -5,9 +7,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:3000"
+    shm_size: "2gb"
     volumes:
       - .:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
     tty: true

@@ -2,8 +2,10 @@
 FROM oven/bun:1.3-slim AS base
 WORKDIR /app
 
+# Mengunci jalur installasi browser Playwright agar predictable
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 # Install dependencies sistem yang diperlukan oleh Playwright
-# (Lib ini wajib agar Chromium bisa berjalan di dalam container)
 RUN apt-get update && apt-get install -y \
     libnss3 \
     libnspr4 \
@@ -19,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
+    libxfixes3 \
     libxshmfence1 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -26,14 +29,13 @@ RUN apt-get update && apt-get install -y \
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-# Install browser Playwright (Chromium saja untuk menghemat ruang)
+# Install browser Playwright khusus chromium di folder yang ditentukan env
 RUN bunx playwright install chromium
 
-# Copy source code
+# Copy seluruh source code
 COPY . .
 
-# Expose port yang digunakan oleh Hono
+# Expose port Hono API
 EXPOSE 3000
 
-# Jalankan aplikasi (produksi)
 CMD ["bun", "point"]

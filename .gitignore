@@ -35,5 +35,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Database
 data/saham.db
+data/saham.db-shm
+data/saham.db-wal
 
 test
