@@ -1,4 +1,3 @@
-import { TRADINGVIEW_HEADERS } from "../../config";
 import * as cheerio from "cheerio";
 import type { TradingViewFinancialHistory } from "../../types";
 
@@ -26,23 +25,11 @@ const STATS_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
 const INCOME_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "total revenue": "revenue",
   "total interest income": "revenue",
-  "cost of goods sold": "cost_of_goods_sold",
   "gross profit": "gross_profit",
-  "operating expenses (excl. cogs)": "operating_expenses_excl_cogs",
   "operating income": "operating_income",
-  "pretax income": "pretax_income",
-  taxes: "income_tax",
-  "net income before discontinued operations": "net_income_before_discontinued",
-  "discontinued operations": "discontinued_operations",
-  "after tax other income/expense": "after_tax_other_income_expense",
   "net income": "net_profit",
-  "preferred dividends": "preferred_dividends",
-  "diluted net income available to common stockholders":
-    "diluted_net_income_to_common",
   "basic earnings per share (basic eps)": "eps",
-  "diluted earnings per share (diluted eps)": "diluted_eps",
   "average basic shares outstanding": "average_basic_shares_outstanding",
-  "diluted shares outstanding": "diluted_shares_outstanding",
   ebitda: "ebitda",
   ebit: "ebit",
 };
@@ -51,7 +38,6 @@ const BALANCE_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "total assets": "total_assets",
   "total liabilities": "total_liabilities",
   "total equity": "total_equity",
-  "total liabilities & shareholders' equities": "total_liabilities_and_equity",
   "total debt": "total_debt",
   "net debt": "net_debt",
 };
@@ -248,11 +234,13 @@ export async function scrapeFundamentalTradingView(
       ? "IDX-COMPOSITE"
       : `IDX-${code.toUpperCase()}`;
   const baseUrl = `https://www.tradingview.com/symbols/${symbol}`;
-
   const masterHistory: Record<string | number, TradingViewFinancialHistory> =
     {};
-  let is404 = false;
 
+  // 🛠️ FIX: 404 dilacak PER-TAB, bukan flag tunggal.
+  // Sebelumnya satu tab 404 (mis. cash-flow tidak tersedia untuk saham tertentu)
+  // membuat SELURUH data dari 3 tab lain yang sudah berhasil ikut dibuang.
+  const tab404: boolean[] = new Array(TABS.length).fill(false);
   const incompleteTabs: string[] = [];
 
   try {
@@ -261,41 +249,73 @@ export async function scrapeFundamentalTradingView(
       TABS.map(async (tab, index) => {
         const page = await context.newPage();
         try {
+          // Jeda staggered agar browser tidak membuka 4 tab dalam milidetik yang persis sama
           await new Promise((resolve) => setTimeout(resolve, index * 500));
-          const targetUrl = `${baseUrl}/${tab.suffix}`;
 
+          const targetUrl = `${baseUrl}/${tab.suffix}`;
           const response = await page.goto(targetUrl, {
             waitUntil: "domcontentloaded",
-            timeout: 20000,
+            timeout: 20000, // Timeout aman untuk koneksi intermiten
           });
 
-          if (response && response.status() === 404) {
-            is404 = true;
+          // 🛡️ KONSEP UTAMA: Proteksi menyeluruh terhadap segala bentuk kegagalan halaman (!response.ok)
+          if (!response || !response.ok()) {
+            if (response && response.status() === 404) {
+              tab404[index] = true;
+            }
+            // Langsung keluar (Short-circuit). Jangan tunggu selector!
             return;
           }
 
+          // Tunggu hidrasi element di tab terkait dengan batas aman 6-8 detik
           await page
             .waitForSelector(tab.waitSelector, { timeout: 8000 })
-            .catch(() => {});
+            .catch(() => {
+              // Dibungkus catch agar jika timeout, tidak melempar error fatal ke Promise.allSettled
+            });
 
           const html = await page.content();
           extractTableData(html, tab.mapping, masterHistory);
 
+          // Jika tab dimuat tapi datanya tidak berhasil terekstrak
           if (!hasDataInTab(masterHistory, tab.mapping)) {
             incompleteTabs.push(tab.suffix);
           }
+        } catch (tabErr: any) {
+          console.error(
+            `[Scraper] Error parsial pada tab [${tab.suffix}] untuk ${code}:`,
+            tabErr?.message || tabErr,
+          );
         } finally {
-          await page.close(); // Tab wajib ditutup agar RAM tidak bengkak
+          // Tab wajib ditutup rapat di blok finally agar RAM tidak bocor (leak)
+          await page.close().catch(() => {});
         }
       }),
     );
 
-    if (is404) {
+    // 🛠️ FIX: Emiten dianggap benar-benar tidak ada HANYA jika SEMUA tab 404.
+    // Kalau cuma sebagian tab 404 (mis. cash-flow tidak tersedia untuk saham
+    // finansial/bank), tab tersebut cukup ditandai incomplete, data dari tab
+    // lain yang berhasil tetap dipakai.
+    const allTabs404 = tab404.every(Boolean);
+    if (allTabs404) {
       console.warn(
-        `[Scraper] Emiten [${code}] tidak ditemukan atau halaman 404 di TradingView.`,
+        `[Scraper] Emiten [${code}] tidak ditemukan atau seluruh halaman 404 di TradingView.`,
       );
       return false;
     }
+
+    tab404.forEach((is404, index) => {
+      if (is404) {
+        const tab = TABS[index];
+        if (tab && !incompleteTabs.includes(tab.suffix)) {
+          console.warn(
+            `[Scraper] Tab [${tab.suffix}] untuk [${code}] mengembalikan 404, tab lain tetap dipakai.`,
+          );
+          incompleteTabs.push(tab.suffix);
+        }
+      }
+    });
 
     if (Object.keys(masterHistory).length === 0) return false;
 
@@ -310,6 +330,7 @@ export async function scrapeFundamentalTradingView(
     }
 
     if (Object.keys(cleanedHistory).length === 0) return false;
+
     return { data: cleanedHistory, incompleteTabs };
   } catch (error) {
     console.error(

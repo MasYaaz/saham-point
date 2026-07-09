@@ -113,30 +113,18 @@ db.run(`
     
     -- Income Statement (Tabel Laba Rugi)
     revenue TEXT,
-    cost_of_goods_sold NUMERIC DEFAULT 0.00,
     gross_profit NUMERIC DEFAULT 0.00,
-    operating_expenses_excl_cogs NUMERIC DEFAULT 0.00,
     operating_income NUMERIC DEFAULT 0.00,
     ebit NUMERIC DEFAULT 0.00,
-    pretax_income NUMERIC DEFAULT 0.00,
-    income_tax NUMERIC DEFAULT 0.00,
-    net_income_before_discontinued NUMERIC DEFAULT 0.00,
-    discontinued_operations NUMERIC DEFAULT 0.00,
-    after_tax_other_income_expense NUMERIC DEFAULT 0.00,
     net_profit TEXT,
-    preferred_dividends NUMERIC DEFAULT 0.00,
-    diluted_net_income_to_common NUMERIC DEFAULT 0.00,
     eps NUMERIC DEFAULT 0.00,
-    diluted_eps NUMERIC DEFAULT 0.00,
     average_basic_shares_outstanding NUMERIC DEFAULT 0.00,
-    diluted_shares_outstanding NUMERIC DEFAULT 0.00,
     ebitda NUMERIC DEFAULT 0.00,
 
     -- Balance Sheet (Tabel Neraca)
     total_assets NUMERIC DEFAULT 0.00,
     total_liabilities NUMERIC DEFAULT 0.00,
     total_equity NUMERIC DEFAULT 0.00,
-    total_liabilities_and_equity NUMERIC DEFAULT 0.00,
     total_debt NUMERIC DEFAULT 0.00,
     net_debt NUMERIC DEFAULT 0.00,
 

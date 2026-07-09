@@ -1,32 +1,30 @@
-// src/server.ts
 import { Hono } from "hono";
 import db from "./db";
-import type { YahooChartResponse } from "./types";
+import type { YahooChartResponse, TradingViewFinancialHistory } from "./types";
 
 const app = new Hono();
 
-// Interface internal untuk type safety query database
+// Sync type safety dengan interface database terbaru kamu (mengakomodasi null secara legal)
 interface EmitenDbRow {
   id: number;
   code: string;
   name: string;
   sector: string;
-  description: string;
-  notation: string;
+  description: string | null;
   last_price: number;
-  previous_close: number;
-  day_high: number;
-  day_low: number;
-  market_cap: number;
-  pbv: number;
-  per: number;
-  roe: number;
-  der: number;
-  dividend: number;
-  dividend_yield: number;
-  beta: number;
-  price_updated_at: string;
-  fundamental_updated_at: string;
+  previous_close: number | null;
+  day_high: number | null;
+  day_low: number | null;
+  market_cap: number | null;
+  pbv: number | null;
+  per: number | null;
+  roe: number | null;
+  der: number | null;
+  dividend: number | null;
+  dividend_yield: number | null;
+  beta: number | null;
+  price_updated_at: string | null;
+  fundamental_updated_at: string | null;
 }
 
 /**
@@ -34,9 +32,10 @@ interface EmitenDbRow {
  */
 app.get("/api", (c) => {
   return c.json({
-    project: "Saham Point Core Backend",
-    version: "1.0.0",
+    project: "Saham Point Core Backend - AI Agent Target Matrix",
+    version: "1.1.0",
     engine: "Bun Runtime",
+    status: "Optimized (High Signal, Low Noise)",
     documentation: {
       base_url: "/api",
       routes: [
@@ -51,7 +50,7 @@ app.get("/api", (c) => {
           path: "/api/saham/:code",
           method: "GET",
           description:
-            "Mengambil profil fundamental data emiten spesifik beserta 5 tahun data histori tahunan penuh.",
+            "Mengambil profil ringkas emiten beserta data histori tahunan bersih bebas noise.",
           parameters: {
             code: { type: "path_parameter", required: true, example: "BBRI" },
           },
@@ -60,18 +59,18 @@ app.get("/api", (c) => {
           path: "/api/saham/:code/growth",
           method: "GET",
           description:
-            "Menganalisis tren pertumbuhan pendapatan dan laba bersih (YoY) selama 5 tahun terakhir.",
+            "Menganalisis tren pertumbuhan pendapatan dan laba bersih (YoY Trend analysis).",
           parameters: {
-            code: { type: "path_parameter", required: true, example: "BBRI" },
+            code: { type: "path_parameter", required: true, example: "TLKM" },
           },
         },
         {
           path: "/api/saham/:code/valuation",
           method: "GET",
           description:
-            "Estimasi harga wajar emiten berdasarkan perbandingan PER saat ini dengan rata-rata PER historis 5 tahun.",
+            "Estimasi harga wajar emiten berdasarkan perbandingan PER saat ini dengan rata-rata PER historis.",
           parameters: {
-            code: { type: "path_parameter", required: true, example: "BBRI" },
+            code: { type: "path_parameter", required: true, example: "ASII" },
           },
         },
         {
@@ -83,7 +82,7 @@ app.get("/api", (c) => {
             name: {
               type: "path_parameter",
               required: true,
-              example: "Banking",
+              example: "Financial",
             },
           },
         },
@@ -91,14 +90,14 @@ app.get("/api", (c) => {
           path: "/api/screener/growth",
           method: "GET",
           description:
-            "Menyaring emiten yang menunjukkan pertumbuhan laba bersih konsisten dari tahun ke tahun.",
+            "Menyaring emiten yang menunjukkan pertumbuhan laba bersih konsisten pada 2 tahun laporan terakhir secara dinamis.",
           parameters: {},
         },
         {
           path: "/api/screener/undervalued",
           method: "GET",
           description:
-            "Pencarian Nilai Murah (Value Investing Screener) menyaring emiten dengan ROE tinggi, DER sehat, dan PBV/PER wajar.",
+            "Screener Value Investing menyaring emiten dengan ROE tinggi, DER sehat, dan PBV/PER wajar.",
           parameters: {
             max_pbv: { type: "query_string", required: false, default: "1.5" },
             min_roe: { type: "query_string", required: false, default: "10.0" },
@@ -109,7 +108,7 @@ app.get("/api", (c) => {
           path: "/api/screener/technical",
           method: "GET",
           description:
-            "Screener Teknikal Harian untuk mendeteksi momentum harga (Breakout, Bullish Reversal, Volume Movers, atau Volatilitas Tinggi).",
+            "Screener momentum harga harian (Breakout, Bullish Reversal, atau Volatilitas Tinggi).",
           parameters: {
             strategy: {
               type: "query_string",
@@ -123,7 +122,7 @@ app.get("/api", (c) => {
           path: "/api/screener/dividend-hunters",
           method: "GET",
           description:
-            "Screener khusus memburu saham Cash Rich dengan Dividend Yield jumbo dan konsisten tetapi rasio utang aman.",
+            "Screener khusus memburu saham dengan Dividend Yield jumbo dan rasio utang aman.",
           parameters: {
             min_yield: {
               type: "query_string",
@@ -136,7 +135,7 @@ app.get("/api", (c) => {
           path: "/api/screener/rankings",
           method: "GET",
           description:
-            "Mengambil peringkat 25 emiten teratas berdasarkan kapitalisasi pasar besar atau pembagian dividen tertinggi.",
+            "Mengambil peringkat 25 emiten teratas berdasarkan market cap atau dividen.",
           parameters: {
             sort: {
               type: "query_string",
@@ -147,43 +146,34 @@ app.get("/api", (c) => {
           },
         },
         {
+          path: "/api/screener/cash-rich",
+          method: "GET",
+          description:
+            "ENDPOINT BARU: Menyaring perusahaan super sehat dengan Free Cash Flow melimpah dan Net Debt negatif (Kas lebih besar dari utang).",
+          parameters: {},
+        },
+        {
           path: "/api/technical/:code",
           method: "GET",
           description:
-            "Mengambil data historis candlestick (OHLCV) dari Yahoo Finance untuk kebutuhan chart teknikal.",
+            "Mengambil data historis candlestick (OHLCV) dari Yahoo Finance.",
           parameters: {
             code: { type: "path_parameter", required: true, example: "BBRI" },
-            range: {
-              type: "query_string",
-              required: false,
-              options: [
-                "1d",
-                "5d",
-                "1mo",
-                "3mo",
-                "6mo",
-                "1y",
-                "2y",
-                "5y",
-                "10y",
-                "max",
-              ],
-              default: "1mo",
-            },
+            range: { type: "query_string", required: false, default: "1mo" },
           },
         },
         {
           path: "/api/diagnostics/stale",
           method: "GET",
           description:
-            "Diagnostik sistem untuk melacak 10 emiten dengan data fundamental dan harga terlawas yang butuh antrean sinkronisasi.",
+            "Melacak 10 emiten dengan data fundamental dan harga terlawas untuk antrean scraper.",
           parameters: {},
         },
         {
           path: "/api/health",
           method: "GET",
           description:
-            "Menampilkan metrik kesehatan instansi runtime server, status koneksi database, dan total emiten terdaftar.",
+            "Menampilkan metrik kesehatan instansi runtime server dan total data.",
           parameters: {},
         },
       ],
@@ -195,7 +185,7 @@ app.get("/", (c) => c.redirect("/api"));
 app.get("/api/endpoints", (c) => c.redirect("/api"));
 
 /**
- * Endpoint 1: Mengambil Data Emiten Spesifik + Histori 5 Tahun
+ * Endpoint 1: Mengambil Data Emiten Spesifik + Histori Bersih
  */
 app.get("/api/saham/:code", (c) => {
   const code = c.req.param("code").toUpperCase();
@@ -205,7 +195,7 @@ app.get("/api/saham/:code", (c) => {
 
   if (!emiten) {
     return c.json(
-      { success: false, message: `Ticker ${code} tidak ditemukan di database` },
+      { success: false, message: `Ticker ${code} tidak ditemukan` },
       404,
     );
   }
@@ -214,25 +204,64 @@ app.get("/api/saham/:code", (c) => {
     .query(
       "SELECT * FROM stock_histories WHERE emiten_id = ? ORDER BY year DESC",
     )
-    .all(emiten.id);
+    .all(emiten.id) as TradingViewFinancialHistory[];
+
+  return c.json({ success: true, data: { ...emiten, histories } });
+});
+
+/**
+ * Endpoint 2: Mengambil Hanya Data Histori Keuangan Tahunan Emiten
+ */
+app.get("/api/saham/:code/history", (c) => {
+  const code = c.req.param("code").toUpperCase();
+
+  // Ambil ID emiten terlebih dahulu
+  const emiten = db
+    .query("SELECT id FROM emiten WHERE code = ? LIMIT 1")
+    .get(code) as { id: number } | undefined;
+
+  if (!emiten) {
+    return c.json(
+      { success: false, message: `Ticker ${code} tidak ditemukan` },
+      404,
+    );
+  }
+
+  // Tarik semua data histories berdasarkan emiten_id bersih dari noise
+  const histories = db
+    .query(
+      `
+      SELECT 
+        year, period, revenue, gross_profit, operating_income, ebit, net_profit, eps,
+        average_basic_shares_outstanding, ebitda, total_assets, total_liabilities,
+        total_equity, total_debt, net_debt, cash_flow_operating, cash_flow_investing,
+        cash_flow_financing, free_cash_flow, roe, der, pbv, per
+      FROM stock_histories 
+      WHERE emiten_id = ? 
+      ORDER BY year DESC
+    `,
+    )
+    .all(emiten.id) as TradingViewFinancialHistory[];
 
   return c.json({
     success: true,
-    data: { ...emiten, histories: histories },
+    code,
+    count: histories.length,
+    data: histories,
   });
 });
 
 /**
- * Endpoint 2: Mengambil Ringkasan Saham Berdasarkan Sektor
+ * Endpoint 3: Mengambil Ringkasan Saham Berdasarkan Sektor
  */
 app.get("/api/sektor/:name", (c) => {
   const sectorName = c.req.param("name");
   const result = db
     .query(
       `
-      SELECT code, name, sector, last_price, pbv, per, roe, der, market_cap
-      FROM emiten
-      WHERE sector LIKE ?
+      SELECT code, name, sector, last_price, pbv, per, roe, der, market_cap 
+      FROM emiten 
+      WHERE sector LIKE ? 
       ORDER BY market_cap DESC
     `,
     )
@@ -242,7 +271,7 @@ app.get("/api/sektor/:name", (c) => {
 });
 
 /**
- * Endpoint 3: Pencarian Nilai Murah (Value Investing Screener)
+ * Endpoint 4: Pencarian Nilai Murah (Value Investing Screener)
  */
 app.get("/api/screener/undervalued", (c) => {
   const maxPbv = parseFloat(c.req.query("max_pbv") ?? "1.5");
@@ -252,14 +281,16 @@ app.get("/api/screener/undervalued", (c) => {
   const result = db
     .query(
       `
-      SELECT code, name, sector, last_price, market_cap, pbv, per, roe, der, dividend_yield
-      FROM emiten
-      WHERE pbv > 0 AND pbv <= ? AND roe >= ? AND der <= ? AND per > 0
-      ORDER BY roe DESC, pbv ASC
-      LIMIT 50
+      SELECT code, name, sector, last_price, market_cap, pbv, per, roe, der, dividend_yield 
+      FROM emiten 
+      WHERE pbv IS NOT NULL AND pbv > 0 AND pbv <= ? 
+        AND roe IS NOT NULL AND roe >= ? 
+        AND der IS NOT NULL AND der <= ? 
+        AND per IS NOT NULL AND per > 0 
+      ORDER BY roe DESC, pbv ASC LIMIT 50
     `,
     )
-    .all(maxPbv, minRoe, maxDer) as Partial<EmitenDbRow>[];
+    .all(maxPbv, minRoe, maxDer) as EmitenDbRow[];
 
   return c.json({
     success: true,
@@ -270,53 +301,34 @@ app.get("/api/screener/undervalued", (c) => {
 });
 
 /**
- * Endpoint 4: Screener Teknikal Harian (Technical Momentum Tracker)
- * Pilihan strategi: ?strategy=breakout (default) | reversal | volatile
+ * Endpoint 5: Screener Teknikal Harian
  */
 app.get("/api/screener/technical", (c) => {
   const strategy = c.req.query("strategy") ?? "breakout";
   let queryStr = "";
 
   if (strategy === "reversal") {
-    // Bullish Reversal Hub: Harga terakhir naik di atas harga penutupan kemarin,
-    // dan low hari ini tidak lebih rendah dari kemarin (menandakan reject support)
     queryStr = `
-      SELECT code, name, sector, last_price, previous_close, day_high, day_low, beta
-      FROM emiten
-      WHERE last_price > previous_close 
-        AND day_low >= previous_close
-        AND previous_close > 0
-      ORDER BY (last_price - previous_close) / previous_close DESC
-      LIMIT 30
+      SELECT code, name, sector, last_price, previous_close, day_high, day_low, beta FROM emiten 
+      WHERE last_price > previous_close AND day_low >= previous_close AND previous_close > 0 
+      ORDER BY (last_price - previous_close) / previous_close DESC LIMIT 30
     `;
   } else if (strategy === "volatile") {
-    // Trading Volatilitas Tinggi: Mencari saham yang rentang swing harganya (High - Low) lebar,
-    // dikombinasikan dengan Beta tinggi (> 1.2) biar asik buat fast trade / scalping harian.
     queryStr = `
-      SELECT code, name, sector, last_price, previous_close, day_high, day_low, beta
-      FROM emiten
-      WHERE day_high > day_low 
-        AND beta >= 1.2
-      ORDER BY (day_high - day_low) / day_low DESC
-      LIMIT 30
+      SELECT code, name, sector, last_price, previous_close, day_high, day_low, beta FROM emiten 
+      WHERE day_high > day_low AND beta >= 1.2 
+      ORDER BY (day_high - day_low) / day_low DESC LIMIT 30
     `;
   } else {
-    // DEFAULT: Breakout Hunter. Harga melesat menembus titik tertinggi hari ini (last_price mendekati/sama dengan day_high)
-    // dengan persentase kenaikan harian yang kuat.
     queryStr = `
-      SELECT code, name, sector, last_price, previous_close, day_high, day_low, beta
-      FROM emiten
-      WHERE last_price >= day_high 
-        AND last_price > previous_close
-        AND previous_close > 0
-      ORDER BY (last_price - previous_close) / previous_close DESC
-      LIMIT 30
+      SELECT code, name, sector, last_price, previous_close, day_high, day_low, beta FROM emiten 
+      WHERE last_price >= day_high AND last_price > previous_close AND previous_close > 0 
+      ORDER BY (last_price - previous_close) / previous_close DESC LIMIT 30
     `;
   }
 
-  const result = db.query(queryStr).all() as Partial<EmitenDbRow>[];
+  const result = db.query(queryStr).all() as EmitenDbRow[];
 
-  // Format hasil dengan menambahkan kalkulasi persentase perubahan visual secara on-the-fly
   const formattedResult = result.map((row) => {
     const changePercent =
       row.previous_close && row.last_price
@@ -326,7 +338,6 @@ app.get("/api/screener/technical", (c) => {
       row.day_low && row.day_high
         ? ((row.day_high - row.day_low) / row.day_low) * 100
         : 0;
-
     return {
       ...row,
       daily_change_percent: parseFloat(changePercent.toFixed(2)),
@@ -343,25 +354,20 @@ app.get("/api/screener/technical", (c) => {
 });
 
 /**
- * Endpoint 5: Pemburu Dividen Jumbo (Dividend Hunters)
- * Query opsional: ?min_yield=5.0
+ * Endpoint 6: Pemburu Dividen Jumbo
  */
 app.get("/api/screener/dividend-hunters", (c) => {
-  const minYield = parseFloat(c.req.query("min_yield") ?? "5.0"); // Minimal yield 5%
-
+  const minYield = parseFloat(c.req.query("min_yield") ?? "5.0");
   const result = db
     .query(
       `
-      SELECT code, name, sector, last_price, market_cap, pbv, per, der, dividend_yield
-      FROM emiten
-      WHERE dividend_yield >= ? 
-        AND der <= 1.5 
-        AND market_cap > 0
-      ORDER BY dividend_yield DESC
-      LIMIT 30
+      SELECT code, name, sector, last_price, market_cap, pbv, per, der, dividend_yield 
+      FROM emiten 
+      WHERE dividend_yield >= ? AND der <= 1.5 AND market_cap > 0 
+      ORDER BY dividend_yield DESC LIMIT 30
     `,
     )
-    .all(minYield) as Partial<EmitenDbRow>[];
+    .all(minYield) as EmitenDbRow[];
 
   return c.json({
     success: true,
@@ -371,22 +377,18 @@ app.get("/api/screener/dividend-hunters", (c) => {
   });
 });
 
-/** Endpoint 6: Penguasa Pasar (Top Market Cap & Movers) */
+/**
+ * Endpoint 7: Penguasa Pasar (Top Rankings)
+ */
 app.get("/api/screener/rankings", (c) => {
   const sortBy = c.req.query("sort") ?? "market_cap";
-  let queryStr = `
-    SELECT code, name, sector, last_price, market_cap, pbv, per, dividend_yield
-    FROM emiten
-  `;
+  let queryStr = `SELECT code, name, sector, last_price, market_cap, pbv, per, dividend_yield FROM emiten `;
+  queryStr +=
+    sortBy === "dividend_yield"
+      ? ` ORDER BY dividend_yield DESC LIMIT 25 `
+      : ` ORDER BY market_cap DESC LIMIT 25 `;
 
-  if (sortBy === "dividend_yield") {
-    queryStr += ` ORDER BY dividend_yield DESC LIMIT 25 `;
-  } else {
-    queryStr += ` ORDER BY market_cap DESC LIMIT 25 `;
-  }
-
-  const result = db.query(queryStr).all() as Partial<EmitenDbRow>[];
-
+  const result = db.query(queryStr).all() as EmitenDbRow[];
   return c.json({
     success: true,
     metric: sortBy,
@@ -395,42 +397,58 @@ app.get("/api/screener/rankings", (c) => {
   });
 });
 
-/** Endpoint 7: Data Candlestick (OHLCV) dari Yahoo Finance untuk Chart Teknikal */
+/**
+ * Endpoint 8:  Screener Cash-Rich & Solvency
+ * Menggunakan field andalan baru: free_cash_flow, total_debt, net_debt yang bersih dari noise
+ */
+app.get("/api/screener/cash-rich", (c) => {
+  const result = db
+    .query(
+      `
+      SELECT e.code, e.name, e.sector, e.last_price, h.free_cash_flow, h.total_debt, h.net_debt, h.year
+      FROM emiten e
+      JOIN stock_histories h ON e.id = h.emiten_id
+      WHERE h.year = (SELECT MAX(year) FROM stock_histories WHERE emiten_id = e.id)
+        AND h.free_cash_flow > 0 
+        AND h.net_debt < 0
+      ORDER BY h.free_cash_flow DESC LIMIT 25
+    `,
+    )
+    .all() as any[];
+
+  return c.json({
+    success: true,
+    description:
+      "Emiten dengan Free Cash Flow positif dan kondisi Kas bersih melampaui Total Utang (Net Debt Negatif)",
+    count: result.length,
+    data: result,
+  });
+});
+
+/**
+ * Endpoint 9: Data Candlestick (OHLCV) Yahoo Finance
+ */
 app.get("/api/technical/:code", async (c) => {
   const code = c.req.param("code").toUpperCase();
-  const range = c.req.query("range") ?? "1mo"; // Default 1 bulan
-
-  // Mapping range ke interval yang paling masuk akal
+  const range = c.req.query("range") ?? "1mo";
   const intervalMap: Record<string, string> = {
-    // Intraday
-    "1d": "5m", // Harian (5 menit)
-    "5d": "15m", // 5 Hari (15 menit)
-
-    // Jangka Pendek
-    "1mo": "1d", // 1 Bulan (harian)
-    "3mo": "1d", // 3 Bulan (harian)
-
-    // Jangka Menengah
-    "6mo": "1wk", // 6 Bulan (mingguan)
-    "1y": "1wk", // 1 Tahun (mingguan)
-
-    // Jangka Panjang
-    "2y": "1mo", // 2 Tahun (bulanan)
-    "5y": "1mo", // 5 Tahun (bulanan)
-    "10y": "1mo", // 10 Tahun (bulanan)
-    max: "3mo", // Seluruh data (kuartalan)
+    "1d": "5m",
+    "5d": "15m",
+    "1mo": "1d",
+    "3mo": "1d",
+    "6mo": "1wk",
+    "1y": "1wk",
+    "2y": "1mo",
+    "5y": "1mo",
+    "10y": "1mo",
+    max: "3mo",
   };
-
   const interval = intervalMap[range] ?? "1d";
   const ticker = `${code}.JK`;
 
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`;
-
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-    });
-
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
     const chartData = (await res.json()) as YahooChartResponse;
     const result = chartData.chart?.result?.[0];
 
@@ -442,9 +460,8 @@ app.get("/api/technical/:code", async (c) => {
       return c.json({ success: false, message: "Data tidak tersedia" }, 404);
     }
 
-    const { meta, timestamp, indicators } = result;
-    const quotes = result?.indicators?.quote?.[0];
-
+    const { meta, timestamp } = result;
+    const quotes = result.indicators.quote[0];
     const history = timestamp.map((ts, index) => ({
       date: new Date(ts * 1000).toISOString().split("T")[0],
       open: quotes.open[index] ?? 0,
@@ -467,13 +484,14 @@ app.get("/api/technical/:code", async (c) => {
   }
 });
 
-/** Endpoint 8: Analisis Pertumbuhan (Growth Trends) 5 Tahun Terakhir */
+/**
+ * Endpoint 10: Analisis Pertumbuhan (Growth Trends) 5 Tahun Terakhir
+ */
 app.get("/api/saham/:code/growth", (c) => {
   const code = c.req.param("code").toUpperCase();
   const emiten = db.query("SELECT id FROM emiten WHERE code = ?").get(code) as
     | { id: number }
     | undefined;
-
   if (!emiten)
     return c.json({ success: false, message: "Emiten tidak ditemukan" }, 404);
 
@@ -481,80 +499,107 @@ app.get("/api/saham/:code/growth", (c) => {
     .query(
       "SELECT year, revenue, net_profit FROM stock_histories WHERE emiten_id = ? ORDER BY year ASC",
     )
-    .all(emiten.id) as { year: number; revenue: number; net_profit: number }[];
+    .all(emiten.id) as {
+    year: number;
+    revenue: number | null;
+    net_profit: number | null;
+  }[];
 
-  // Hitung persentase pertumbuhan tahun ke tahun (YoY Growth)
+  // Proteksi tangguh dari NaN / Pembagian angka 0 / Nilai Null
   const growthTrends = histories.map((curr, idx, arr) => {
-    if (idx === 0) return { ...curr, revenue_growth: 0, profit_growth: 0 };
+    if (idx === 0)
+      return { ...curr, revenue_growth_yoy: 0, profit_growth_yoy: 0 };
     const prev = arr[idx - 1];
 
-    if (!prev) {
-      return { ...curr, revenue_growth: 0, profit_growth: 0 };
-    }
+    const revGrowth =
+      prev?.revenue && curr.revenue
+        ? ((curr.revenue - prev.revenue) / prev.revenue) * 100
+        : 0;
+    const profGrowth =
+      prev?.net_profit && curr.net_profit
+        ? ((curr.net_profit - prev.net_profit) / prev.net_profit) * 100
+        : 0;
 
     return {
       ...curr,
-      revenue_growth: parseFloat(
-        (((curr.revenue - prev.revenue) / prev.revenue) * 100).toFixed(2),
-      ),
-      profit_growth: parseFloat(
-        (((curr.net_profit - prev.net_profit) / prev.net_profit) * 100).toFixed(
-          2,
-        ),
-      ),
+      revenue_growth_yoy: parseFloat(revGrowth.toFixed(2)),
+      profit_growth_yoy: parseFloat(profGrowth.toFixed(2)),
     };
   });
 
   return c.json({ success: true, code, trends: growthTrends });
 });
 
-/** Endpoint 9: Screener Emiten High-Growth (profit naik 2 tahun beruntun) */
+/**
+ * Endpoint 11: Screener Emiten High-Growth.
+ * Mencari emiten yang Net Profit tahun terakhir > tahun sebelumnya berdasarkan ketersediaan data terbaru di DB.
+ */
 app.get("/api/screener/growth", (c) => {
-  // Logika: Mencari emiten yang profit 2025 > 2024 > 2023
   const result = db
     .query(
       `
-    SELECT e.code, e.name, h1.net_profit as profit_2025, h2.net_profit as profit_2024
-    FROM emiten e
-    JOIN stock_histories h1 ON e.id = h1.emiten_id AND h1.year = 2025
-    JOIN stock_histories h2 ON e.id = h2.emiten_id AND h2.year = 2024
-    WHERE h1.net_profit > h2.net_profit
-    ORDER BY (h1.net_profit - h2.net_profit) / h2.net_profit DESC
-    LIMIT 20
-  `,
+      SELECT e.code, e.name, h1.net_profit as latest_net_profit, h2.net_profit as prev_net_profit, h1.year as latest_year
+      FROM emiten e
+      JOIN stock_histories h1 ON e.id = h1.emiten_id
+      JOIN stock_histories h2 ON e.id = h2.emiten_id AND h2.year = (h1.year - 1)
+      WHERE h1.year = (SELECT MAX(year) FROM stock_histories WHERE emiten_id = e.id)
+        AND h1.net_profit IS NOT NULL 
+        AND h2.net_profit IS NOT NULL
+        AND h1.net_profit > h2.net_profit
+      ORDER BY (h1.net_profit - h2.net_profit) / ABS(h2.net_profit) DESC 
+      LIMIT 25
+    `,
     )
     .all();
 
-  return c.json({ success: true, count: result.length, data: result });
+  return c.json({
+    success: true,
+    description:
+      "Menyaring emiten dengan pertumbuhan laba bersih positif pada tahun laporan keuangan terbaru",
+    count: result.length,
+    data: result,
+  });
 });
 
-/** Endpoint 10: Fair Value Estimate berdasarkan rata-rata PER historis */
+/**
+ * Endpoint 12: Fair Value Estimate Historis
+ */
 app.get("/api/saham/:code/valuation", (c) => {
   const code = c.req.param("code").toUpperCase();
-
   const data = db
     .query(
       `
-    SELECT e.last_price, e.per as current_per, 
-           AVG(h.per) as avg_5y_per
-    FROM emiten e
-    JOIN stock_histories h ON e.id = h.emiten_id
-    WHERE e.code = ?
-    GROUP BY e.id
-  `,
+      SELECT e.last_price, e.per as current_per, AVG(h.per) as avg_5y_per 
+      FROM emiten e
+      JOIN stock_histories h ON e.id = h.emiten_id
+      WHERE e.code = ? AND h.per IS NOT NULL AND h.per != 0
+      GROUP BY e.id
+    `,
     )
-    .get(code) as {
-    last_price: number;
-    current_per: number;
-    avg_5y_per: number;
-  };
+    .get(code) as
+    | {
+        last_price: number;
+        current_per: number | null;
+        avg_5y_per: number | null;
+      }
+    | undefined;
 
-  if (!data)
-    return c.json({ success: false, message: "Data tidak cukup" }, 404);
+  if (!data || !data.current_per || !data.avg_5y_per) {
+    return c.json(
+      {
+        success: false,
+        message:
+          "Data historis tidak mencukupi untuk kalkulasi rata-rata nilai wajar",
+      },
+      404,
+    );
+  }
 
   const discount = data.avg_5y_per - data.current_per;
   const status =
-    discount > 0 ? "Undervalued vs Historical" : "Overvalued vs Historical";
+    discount > 0
+      ? "Undervalued vs Historical Average"
+      : "Overvalued vs Historical Average";
 
   return c.json({
     success: true,
@@ -562,23 +607,24 @@ app.get("/api/saham/:code/valuation", (c) => {
     status,
     current_per: data.current_per,
     avg_historical_per: parseFloat(data.avg_5y_per.toFixed(2)),
-    potensi_upside_per: parseFloat(discount.toFixed(2)),
+    potensi_upside_per_points: parseFloat(discount.toFixed(2)),
   });
 });
 
-/** Endpoint 11: Pemantau Data Usang (Scraper Diagnostics) */
+/**
+ * Endpoint 13: Pemantau Data Usang (Scraper Diagnostics)
+ */
 app.get("/api/diagnostics/stale", (c) => {
   const staleFundamental = db
     .query(
       "SELECT code, name, fundamental_updated_at FROM emiten ORDER BY fundamental_updated_at ASC LIMIT 10",
     )
-    .all() as Partial<EmitenDbRow>[];
-
+    .all();
   const stalePrice = db
     .query(
       "SELECT code, name, price_updated_at FROM emiten ORDER BY price_updated_at ASC LIMIT 10",
     )
-    .all() as Partial<EmitenDbRow>[];
+    .all();
 
   return c.json({
     success: true,
@@ -587,15 +633,16 @@ app.get("/api/diagnostics/stale", (c) => {
   });
 });
 
-/** Endpoint 12: Cek Status Database (Health Check) */
+/**
+ * Endpoint 14: Cek Status Database (Health Check)
+ */
 app.get("/api/health", (c) => {
-  const totalEmiten: any = db
-    .query("SELECT COUNT(*) as total FROM emiten")
-    .get();
-
+  const totalEmiten = db.query("SELECT COUNT(*) as total FROM emiten").get() as
+    | { total: number }
+    | undefined;
   return c.json({
     status: "healthy",
-    runtime: "Bun",
+    runtime: "Bun Core Engine",
     total_tracked_emiten: totalEmiten?.total ?? 0,
     timestamp: new Date().toISOString(),
   });

@@ -107,12 +107,18 @@ export async function syncDataAll(
           console.warn(`[Yahoo] Gagal fetch harga ${code}`),
         );
 
+        // 🛠️ FIX: sebelumnya updateFundamental() dipanggil DUA KALI untuk emiten
+        // yang sama — sekali sebagai `scraperPromise` (hasilnya tidak pernah
+        // dipakai/di-race) dan sekali lagi sebagai `fundStatus`. Efeknya setiap
+        // emiten di-scrape 2x (buang waktu, bandwidth, dan naikkan risiko
+        // rate-limit/block dari TradingView). Timeout internal 25 detik sudah
+        // ditangani di dalam updateFundamental() sendiri via Promise.race, jadi
+        // tidak perlu di-duplikasi di sini.
         const fundStatus = await updateFundamental(code, context);
 
         if (fundStatus === "INCOMPLETE") {
           retryQueue.push(item);
           status = "INCOMPLETE";
-          // Kita tidak tambah success/fail dulu, tunggu hasil di Sesi 2
         } else if (fundStatus === false) {
           failCount++;
           status = "FAIL";
@@ -143,8 +149,9 @@ export async function syncDataAll(
       );
 
       for (const item of retryQueue) {
+        const retryCode = item.code.toUpperCase();
         try {
-          const retryStatus = await updateFundamental(item.code, context);
+          const retryStatus = await updateFundamental(retryCode, context);
 
           if (retryStatus === true) {
             successCount++;

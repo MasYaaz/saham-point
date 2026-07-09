@@ -24,14 +24,14 @@ export function scrapeProfileTradingView(html: string): ScrapedProfile {
     eps: 0,
   };
 
-  // 1. Ekstrak Deskripsi Perusahaan (dari blok company-info-id)
+  // 1. Ekstrak Deskripsi Perusahaan
   const companyInfoBox = $("div[data-container-name='company-info-id']");
   const descText =
     companyInfoBox.find("div[class*='content-'] span span").first().text() ||
     $("div[class*='content-oqCCtNt1']").text();
   if (descText) data.description = cleanText(descText).replace(/\s+/g, " ");
 
-  // 2. Ekstrak Metrik Finansial (dari blok key-stats-id)
+  // 2. Ekstrak Metrik Finansial
   $("div[data-container-name='key-stats-id'] div[class*='block-']").each(
     (_, el) => {
       const $el = $(el);
@@ -39,11 +39,9 @@ export function scrapeProfileTradingView(html: string): ScrapedProfile {
         $el.find("[class*='label-']").text(),
       ).toLowerCase();
       const valueText = cleanText($el.find("[class*='value-']").text());
-
       if (!label || isEmptyMarker(valueText)) return;
 
       const val = parseRawData(valueText);
-
       if (label.includes("market capitalization")) {
         data.market_cap = val;
       } else if (label.includes("price to earnings")) {
@@ -56,7 +54,7 @@ export function scrapeProfileTradingView(html: string): ScrapedProfile {
     },
   );
 
-  // 3. Trik Cerdas Last Dividend: Ekstrak dari teks FAQ Accordion menggunakan Regex
+  // 3. Trik Cerdas Last Dividend
   const faqText = $("div[data-container-name='symbol-faq-widget-id']").text();
   if (faqText) {
     const dividendMatch = /last dividend per share was\s*([\d.,]+)/i.exec(
@@ -72,33 +70,33 @@ export function scrapeProfileTradingView(html: string): ScrapedProfile {
 
 /**
  * Membuka halaman utama symbol saham via Playwright Context
- * Mengembalikan string HTML jika sukses, atau false jika 404 / gagal
+ * Mengembalikan string HTML jika sukses, atau false jika 404 / gagal / timeout
  */
 export async function fetchTradingViewOverviewHtml(
   symbol: string,
-  context: any, // 1. Terima context eksternal dari utils di sini
+  context: any,
 ): Promise<string | false> {
   const url = `https://www.tradingview.com/symbols/${symbol}/`;
-
-  // 2. Buka halaman baru langsung dari context global terbagi
   const page = await context.newPage();
 
   try {
-    // ⚡ Dipercepat menggunakan 'domcontentloaded' (tidak menunggu tracker/ws/charts)
+    // 🛡️ FIX 1: Potong timeout navigasi dari 60 detik menjadi 15-20 detik saja (Fail Fast)
     const response = await page.goto(url, {
       waitUntil: "domcontentloaded",
-      timeout: 60_000,
+      timeout: 20_000,
     });
 
-    // Cek jika halaman tidak ditemukan (404)
-    if (response && response.status() === 404) {
+    // 🛡️ FIX 2: Cek validitas response secara menyeluruh (!response.ok())
+    // Menangkap status 404, 403, 500, atau jika network mendadak putus (null)
+    if (!response || !response.ok()) {
       console.warn(
-        `[Scraper] Ticker [${symbol}] tidak ditemukan (Error 404) di TradingView.`,
+        `[Scraper] Ticker [${symbol}] diabaikan (Status: ${response ? response.status() : "No Response"}).`,
       );
-      return false;
+      return false; // Langsung keluar! Menghindari gantung 30 detik di bawah.
     }
 
-    // Tunggu hidrasi data angka selesai diproses di dalam kontainer Key Stats
+    // 🛡️ FIX 3: Potong timeout tunggu hidrasi dari 30 detik menjadi maksimal 10 detik
+    // Gunakan Array.from() standar agar kodenya lebih clean dibanding prototype slice
     await page
       .waitForFunction(
         () => {
@@ -108,36 +106,31 @@ export async function fetchTradingViewOverviewHtml(
           );
           if (!keyStatsContainer) return false;
 
-          const valueElements: any[] = Array.prototype.slice.call(
+          const valueElements = Array.from(
             keyStatsContainer.querySelectorAll("[class*='value-']"),
           );
-          return valueElements.some((el) => {
-            const txt = (el.textContent ?? "").trim();
-            return /\d/.test(txt); // Mengunci hingga angka render sempurna
-          });
+          return valueElements.some((el: any) =>
+            /\d/.test((el.textContent ?? "").trim()),
+          );
         },
-        { timeout: 30_000 },
+        { timeout: 10_000 },
       )
       .catch(() => {
         console.log(
-          "⚠️ Peringatan: Hidrasi komponen key-stats mengalami timeout.",
+          `⚠️ Peringatan: Hidrasi key-stats emiten [${symbol}] mengalami timeout.`,
         );
       });
 
     const currentContent = await page.content();
-
-    if (process.env.NODE_ENV === "development") {
-      const fs = await import("fs");
-      fs.writeFileSync("debug_tradingview.html", currentContent);
-    }
-
     return currentContent;
-  } catch (error) {
-    console.error(`[Scraper] Gagal mengambil HTML untuk [${symbol}]:`, error);
+  } catch (error: any) {
+    console.error(
+      `[Scraper] Gagal mengambil HTML untuk [${symbol}]:`,
+      error?.message || error,
+    );
     return false;
   } finally {
-    // 3. Tab wajib ditutup agar RAM tetap lega selama proses antrean
-    await page.close();
+    await page.close().catch(() => {});
   }
 }
 
@@ -146,11 +139,9 @@ export async function fetchTradingViewOverviewHtml(
  */
 export async function scrapeTradingViewProfile(
   symbol: string,
-  context: any, // 4. Teruskan parameter context ke tingkat fungsi utama
+  context: any,
 ): Promise<ScrapedProfile | false> {
   const html = await fetchTradingViewOverviewHtml(symbol, context);
-
   if (html === false) return false;
-
   return scrapeProfileTradingView(html);
 }

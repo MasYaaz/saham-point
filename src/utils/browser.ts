@@ -11,7 +11,22 @@ interface PersistentBrowser {
  * Sudah dilengkapi dengan global interceptor untuk memblokir asset berat.
  */
 export async function initPersistentBrowser(): Promise<PersistentBrowser> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox", // Wajib di Docker agar proses Chrome tidak ditolak OS Container
+      "--disable-setuid-sandbox", // Mematikan layer sandbox tambahan yang bikin gantung
+      "--disable-dev-shm-usage", // Memaksa Chrome pakai /tmp jika shared memory container bermasalah
+      "--disable-gpu",
+      "--disable-extensions",
+      "--disable-background-networking",
+      "--disable-default-apps",
+      "--disable-sync",
+      "--disable-blink-features=AutomationControlled", // Menyembunyikan flag "bot/automation" dari deteksi TradingView
+      "--js-flags=--max-old-space-size=256",
+    ],
+  });
+
   const context = await browser.newContext({
     userAgent: TRADINGVIEW_HEADERS["User-Agent"],
     locale: "en-US",
