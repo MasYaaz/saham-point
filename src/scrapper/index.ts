@@ -1,5 +1,6 @@
 import db from "../db";
 import type { EmitenItem } from "../types";
+import { initPersistentBrowser } from "../utils/browser";
 import { fetchPriceYahoo } from "./helper/fetchPriceYahoo";
 import { updateFundamental } from "./helper/updateFundamental";
 
@@ -49,117 +50,118 @@ export async function syncDataAll(
     currentCount: number,
     totalEmiten: number,
     code: string,
-    status: "OK" | "FAIL",
+    status: "OK" | "FAIL" | "INCOMPLETE",
   ) => void,
 ): Promise<{ success: number; fail: number; failedLogs: string[] }> {
-  // 1. Hitung total baris semua saham yang ada di database emiten
   const countRow = db.query("SELECT COUNT(*) as total FROM emiten").get() as
     | { total: number }
     | undefined;
-  const totalEmiten = countRow?.total ?? 1; // Fallback ke 1 agar tidak terjadi pembagian dengan angka 0
+  const totalEmiten = countRow?.total ?? 1;
 
-  // 2. Ambil antrean berdasarkan data fundamental yang paling usang atau histori belum lengkap
   const queue = db
     .query(
-      ` 
-        SELECT e.id, e.code, e.description, e.last_price, e.beta, e.pbv, 
-              e.per, e.roe, e.der, e.price_updated_at, e.fundamental_updated_at 
-        FROM emiten e 
-        LEFT JOIN ( 
-            SELECT emiten_id, COUNT(*) as total 
-            FROM stock_histories 
-            WHERE period = 'FY' 
-            GROUP BY emiten_id 
-        ) h ON e.id = h.emiten_id 
-        -- Tambahkan filter di bawah ini:
-        WHERE e.fundamental_updated_at < date('now', '-3 months') 
-          OR e.fundamental_updated_at IS NULL
-        ORDER BY CASE 
-            WHEN IFNULL(h.total, 0) < 4 THEN 0 
-            ELSE 1 
-        END ASC, 
-        e.fundamental_updated_at ASC 
-        LIMIT ? 
+      `
+      SELECT id, code FROM emiten 
+      WHERE fundamental_updated_at < date('now', '-3 months') OR fundamental_updated_at IS NULL 
+      ORDER BY fundamental_updated_at ASC LIMIT ?
     `,
     )
     .all(limit) as EmitenItem[];
 
-  if (queue.length === 0) {
-    return { success: 0, fail: 0, failedLogs: ["Antrian fundamental kosong."] };
-  }
+  if (queue.length === 0)
+    return { success: 0, fail: 0, failedLogs: ["Antrian kosong."] };
 
   let successCount = 0;
   let failCount = 0;
   const failedLogs: string[] = [];
-  const totalItems = queue.length;
+  const retryQueue: EmitenItem[] = [];
 
-  for (let i = 0; i < totalItems; i++) {
-    const item = queue[i];
+  // 1. Berikan proteksi Timeout global saat init browser agar tidak stuck selamanya
+  const browserPromise = initPersistentBrowser();
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Browser Init Timeout")), 30000),
+  );
 
-    // PROTEKSI SAFETY: Pengecekan aman jika item atau code bernilai undefined
-    if (!item || !item.code) {
-      failCount++;
-      continue;
-    }
+  let browserData;
+  try {
+    browserData = (await Promise.race([browserPromise, timeoutPromise])) as any;
+  } catch (e: any) {
+    return {
+      success: 0,
+      fail: queue.length,
+      failedLogs: [`Gagal inisialisasi browser: ${e.message}`],
+    };
+  }
 
-    const code = item.code.toUpperCase();
-    let currentStatus: "OK" | "FAIL" = "OK";
+  const { browser, context } = browserData;
 
-    try {
-      // ──────────────────────────────────────────────────────────────
-      // AKSUB-PROSES 1: SINKRONISASI HARGA REAL-TIME (Yahoo Chart API)
-      // ──────────────────────────────────────────────────────────────
-      let priceSuccess = false;
+  try {
+    // --- SESI 1: Scraping Utama ---
+    for (const item of queue) {
+      const code = item.code.toUpperCase();
+      let status: "OK" | "FAIL" | "INCOMPLETE" = "OK";
+
       try {
-        priceSuccess = await fetchPriceYahoo(item);
-      } catch (priceErr: any) {
-        failedLogs.push(
-          `[Price Sync Error] ${code}: ${priceErr?.message || "Gagal fetch harga"}`,
+        // 2. Pastikan fetchPriceYahoo di dalam internalnya sudah punya AbortController timeout!
+        await fetchPriceYahoo(item).catch(() =>
+          console.warn(`[Yahoo] Gagal fetch harga ${code}`),
         );
-      }
 
-      // ──────────────────────────────────────────────────────────────
-      // AKSUB-PROSES 2: SINKRONISASI DATA FUNDAMENTAL & HISTORI
-      // ──────────────────────────────────────────────────────────────
-      const fundSuccess = await updateFundamental(code);
+        const fundStatus = await updateFundamental(code, context);
 
-      // Emiten dianggap sukses jika data fundamental berhasil masuk
-      if (fundSuccess) {
-        successCount++;
-      } else {
+        if (fundStatus === "INCOMPLETE") {
+          retryQueue.push(item);
+          status = "INCOMPLETE";
+          // Kita tidak tambah success/fail dulu, tunggu hasil di Sesi 2
+        } else if (fundStatus === false) {
+          failCount++;
+          status = "FAIL";
+          failedLogs.push(`${code}: Scraping gagal total.`);
+        } else {
+          successCount++;
+        }
+      } catch (err: any) {
         failCount++;
-        currentStatus = "FAIL";
-        failedLogs.push(
-          `${code}: Data profile atau finansial dari Yahoo kosong/null`,
-        );
+        status = "FAIL";
+        failedLogs.push(`${code}: ${err.message}`);
       }
-    } catch (error: any) {
-      failCount++;
-      currentStatus = "FAIL";
-      failedLogs.push(
-        `${code}: ${error?.message || "Terjadi kesalahan sistem"}`,
+
+      if (onProgress)
+        onProgress(
+          successCount + failCount + retryQueue.length,
+          totalEmiten,
+          code,
+          status,
+        );
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    // --- SESI 2: Perbaikan Data Bolong (Retry Stage) ---
+    if (retryQueue.length > 0) {
+      console.log(
+        `\n🛠️ Memperbaiki ${retryQueue.length} emiten dengan data tidak lengkap...`,
       );
+
+      for (const item of retryQueue) {
+        try {
+          const retryStatus = await updateFundamental(item.code, context);
+
+          if (retryStatus === true) {
+            successCount++;
+          } else {
+            // Jika kesempatan kedua masih gagal/incomplete, baru kita masukkan ke kelompok FAIL
+            failCount++;
+            failedLogs.push(`${item.code}: Gagal dilengkapi pada sesi retry.`);
+          }
+        } catch (retryErr: any) {
+          failCount++;
+          failedLogs.push(`${item.code} (Retry Error): ${retryErr.message}`);
+        }
+      }
     }
-
-    // Pemicu callback progress ke TUI / CLI
-    if (onProgress) {
-      const currentSyncedRow = db
-        .query(
-          `
-          SELECT COUNT(DISTINCT emiten_id) as total 
-          FROM stock_histories 
-          WHERE period = 'FY'
-          `,
-        )
-        .get() as { total: number } | undefined;
-      const currentSyncedCount = currentSyncedRow?.total ?? successCount;
-
-      onProgress(currentSyncedCount, totalEmiten, code, currentStatus);
-    }
-
-    // Jeda dinamis agar scraping natural dan menghindari rate-limit Yahoo Finance
-    const delay = Math.floor(Math.random() * (300 - 150 + 1)) + 150;
-    await new Promise((resolve) => setTimeout(resolve, delay));
+  } finally {
+    // Pastikan browser WAJIB ditutup agar lock file dilepas
+    await browser.close().catch(() => {});
   }
 
   return { success: successCount, fail: failCount, failedLogs };

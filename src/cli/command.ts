@@ -2,7 +2,7 @@ import db from "../db";
 import { runFundamentalCli, fundamentalSyncState } from "./sync-data";
 import readline from "readline";
 import app from "../server";
-import { PORT } from "../config";
+import { PORT, URL } from "../config";
 import { formatAbbr } from "../utils/formatMoney";
 import {
   BG_GREEN,
@@ -11,7 +11,6 @@ import {
   CYAN,
   GRAY,
   GREEN,
-  RED,
   RESET,
   YELLOW,
 } from "../theme";
@@ -122,7 +121,7 @@ export async function handleCommand(
           const formattedMethod = ` ${methodColor}${route.method}${RESET}`;
 
           // Gabungkan URL lokal dengan port aktif secara dinamis
-          const fullUrl = ` http://localhost:${PORT}${route.path}`;
+          const fullUrl = ` ${URL}${route.path}`;
           const formattedUrl = `${CYAN}${fullUrl}${RESET}`;
 
           const cMethod = padColumn(formattedMethod, wMethod);
@@ -165,7 +164,10 @@ export async function handleCommand(
 async function handleSync(renderTUI: () => void) {
   if (fundamentalSyncState.isActive) {
     fundamentalSyncState.isActive = false;
-    renderTUI();
+    readline.cursorTo(process.stdout, 0);
+    process.stdout.write(
+      "  🛑 Mengirim sinyal jeda, mohon tunggu emiten terakhir selesai...\n",
+    );
     return;
   }
 

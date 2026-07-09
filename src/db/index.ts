@@ -110,26 +110,54 @@ db.run(`
     emiten_id INTEGER NOT NULL,
     period TEXT CHECK(period IN ('Q1', 'Q2', 'Q3', 'Q4', 'FY')) DEFAULT 'FY',
     year INTEGER NOT NULL,
+    
+    -- Income Statement (Tabel Laba Rugi)
     revenue TEXT,
+    cost_of_goods_sold NUMERIC DEFAULT 0.00,
+    gross_profit NUMERIC DEFAULT 0.00,
+    operating_expenses_excl_cogs NUMERIC DEFAULT 0.00,
+    operating_income NUMERIC DEFAULT 0.00,
+    ebit NUMERIC DEFAULT 0.00,
+    pretax_income NUMERIC DEFAULT 0.00,
+    income_tax NUMERIC DEFAULT 0.00,
+    net_income_before_discontinued NUMERIC DEFAULT 0.00,
+    discontinued_operations NUMERIC DEFAULT 0.00,
+    after_tax_other_income_expense NUMERIC DEFAULT 0.00,
     net_profit TEXT,
+    preferred_dividends NUMERIC DEFAULT 0.00,
+    diluted_net_income_to_common NUMERIC DEFAULT 0.00,
     eps NUMERIC DEFAULT 0.00,
+    diluted_eps NUMERIC DEFAULT 0.00,
+    average_basic_shares_outstanding NUMERIC DEFAULT 0.00,
+    diluted_shares_outstanding NUMERIC DEFAULT 0.00,
+    ebitda NUMERIC DEFAULT 0.00,
+
+    -- Balance Sheet (Tabel Neraca)
+    total_assets NUMERIC DEFAULT 0.00,
+    total_liabilities NUMERIC DEFAULT 0.00,
+    total_equity NUMERIC DEFAULT 0.00,
+    total_liabilities_and_equity NUMERIC DEFAULT 0.00,
+    total_debt NUMERIC DEFAULT 0.00,
+    net_debt NUMERIC DEFAULT 0.00,
+
+    -- Cash Flow (Tabel Arus Kas)
+    cash_flow_operating NUMERIC DEFAULT 0.00,
+    cash_flow_investing NUMERIC DEFAULT 0.00,
+    cash_flow_financing NUMERIC DEFAULT 0.00,
+    free_cash_flow NUMERIC DEFAULT 0.00,
+
+    -- Ratios & Valuation (Tab Statistics)
     roe NUMERIC DEFAULT 0.00,
     der NUMERIC DEFAULT 0.00,
     pbv NUMERIC DEFAULT 0.00,
     per NUMERIC DEFAULT 0.00,
-    operating_income NUMERIC DEFAULT 0.00,
-    ebitda NUMERIC DEFAULT 0.00,
-    free_cash_flow NUMERIC DEFAULT 0.00,
-    capital_expenditure NUMERIC DEFAULT 0.00,
-    interest_expense NUMERIC DEFAULT 0.00,
-    total_assets NUMERIC DEFAULT 0.00,
-    total_debt NUMERIC DEFAULT 0.00,
-    cash NUMERIC DEFAULT 0.00,
+
     created_at TEXT,
     updated_at TEXT,
     FOREIGN KEY(emiten_id) REFERENCES emiten(id) ON DELETE CASCADE,
     UNIQUE(emiten_id, period, year)
   );
+
   CREATE INDEX IF NOT EXISTS idx_histories_emiten_year ON stock_histories(emiten_id, year);
 `);
 

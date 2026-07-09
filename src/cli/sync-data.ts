@@ -11,7 +11,7 @@ export async function runFundamentalCli(
     sudahTerprosesGlobal: number,
     totalEmitenGlobal: number,
     code: string,
-    status: "OK" | "FAIL",
+    status: "OK" | "FAIL" | "INCOMPLETE",
     sisaTerkini: number,
     batchProcessed: number,
     currentLimit: number,
@@ -25,9 +25,9 @@ export async function runFundamentalCli(
 
   const originalWarn = console.warn;
   console.warn = () => {};
+
   const startTime = performance.now();
   const BATCH_SIZE = 20;
-
   let totalSuccessGlobal = 0;
   let totalFailGlobal = 0;
   const allFailedLogs: string[] = [];
@@ -40,9 +40,7 @@ export async function runFundamentalCli(
   function getSisaAntrean(): number {
     const row = db
       .query(
-        `SELECT COUNT(*) as sisa FROM emiten 
-       WHERE fundamental_updated_at < date('now', '-3 months') 
-       OR fundamental_updated_at IS NULL`,
+        `SELECT COUNT(*) as sisa FROM emiten WHERE fundamental_updated_at < date('now', '-3 months') OR fundamental_updated_at IS NULL`,
       )
       .get() as { sisa: number } | undefined;
     return row?.sisa ?? 0;
@@ -63,10 +61,27 @@ export async function runFundamentalCli(
       currentLimit,
       (_currentSuccess, totalEmiten, code, status) => {
         batchProcessed++;
-        const sisaTerkini = sisaAwalBatch - batchProcessed;
+
+        // 🛡️ FIX: Jika status GAGAL (FAIL), kita harus tetap mengupdate timestamp fundamental_updated_at
+        // milik emiten tersebut agar tidak menyumbat antrean (infinite loop) di batch berikutnya.
+        if (status === "FAIL") {
+          const nowStr = new Date(
+            new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }),
+          )
+            .toISOString()
+            .replace("T", " ")
+            .substring(0, 19);
+
+          db.run(
+            "UPDATE emiten SET fundamental_updated_at = ? WHERE code = ?",
+            [nowStr, code],
+          );
+        }
+
+        const sisaTerkini = Math.max(0, sisaAwalBatch - batchProcessed);
         const sudahTerprosesGlobal = Math.max(
           0,
-          totalEmitenGlobal - sisaTerkini,
+          totalEmitenGlobal - getSisaAntrean(), // Gunakan sisa real-time dari database agar akurat 100%
         );
 
         if (!fundamentalSyncState.isActive) return;
@@ -87,6 +102,7 @@ export async function runFundamentalCli(
 
     totalSuccessGlobal += result.success;
     totalFailGlobal += result.fail;
+
     if (result.failedLogs.length > 0) {
       allFailedLogs.push(...result.failedLogs);
     }
@@ -101,16 +117,18 @@ export async function runFundamentalCli(
   console.warn = originalWarn;
 
   // Cetak rekap hanya jika proses selesai secara natural
-  if (fundamentalSyncState.isActive && getSisaAntrean() === 0) {
+  if (getSisaAntrean() === 0) {
     const endTime = performance.now();
     const duration = ((endTime - startTime) / 1000 / 60).toFixed(2);
-    console.log(`\n\n🏆 [TAMAT] Seluruh data emiten berhasil disinkronisasi!`);
+    console.log(
+      `\n\n 🏆 [Selesai] Seluruh data emiten berhasil disinkronisasi!`,
+    );
     console.log(
       `───────────────────────────────────────────────────────────────`,
     );
-    console.log(`⏱️  Total Waktu Eksekusi : ${duration} menit`);
-    console.log(`📈 Total Sukses Disuntik: ${totalSuccessGlobal} Emiten`);
-    console.log(`📉 Total Gagal / Kosong : ${totalFailGlobal} Emiten`);
+    console.log(` ⏱️  Total Waktu Eksekusi : ${duration} menit`);
+    console.log(` 📈 Total Sukses Disuntik: ${totalSuccessGlobal} Emiten`);
+    console.log(` 📉 Total Gagal / Kosong : ${totalFailGlobal} Emiten`);
     console.log(
       `───────────────────────────────────────────────────────────────\n`,
     );

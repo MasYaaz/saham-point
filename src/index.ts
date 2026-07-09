@@ -5,7 +5,7 @@ import { fundamentalSyncState } from "./cli/sync-data";
 import { handleCommand } from "./cli/command";
 import app from "./server";
 import db from "./db";
-import { PORT, VERSION } from "./config"; // Menggunakan konfigurasi terpusat
+import { PORT, URL, VERSION } from "./config"; // Menggunakan konfigurasi terpusat
 import { BG_GREEN, BG_RED, BOLD, CYAN, GRAY, GREEN, RESET } from "./theme";
 import { getMarketStatus } from "./utils/marketStatus";
 import { TUI } from "./cli/tui-engine";
@@ -125,14 +125,11 @@ function renderTUI() {
     TUI.fullRow(` ${BOLD}Live Network Endpoint Links${RESET}`, BOX_WIDTH),
   );
   console.log(
-    TUI.fullRow(
-      ` ➜ Local API Gateway URL : ${CYAN}http://localhost:${PORT}${RESET}`,
-      BOX_WIDTH,
-    ),
+    TUI.fullRow(` ➜ Local API Gateway URL : ${CYAN}${URL}${RESET}`, BOX_WIDTH),
   );
   console.log(
     TUI.fullRow(
-      ` ➜ Core Health Check     : ${CYAN}http://localhost:${PORT}/api/health${RESET}`,
+      ` ➜ Core Health Check     : ${CYAN}${URL}/api/health${RESET}`,
       BOX_WIDTH,
     ),
   );

@@ -1,6 +1,6 @@
 <div align="center">
 
-<pre style="color: #fdf6e3; font-weight: bold; background-color: transparent; border: none; margin-bottom: 0;">
+<pre style="color: #83f496; font-weight: bold; background-color: transparent; border: none; margin-bottom: 0;">
 ███████╗ █████╗ ██╗  ██╗ █████╗ ███╗   ███╗    ██████╗  ██████╗ ██╗███╗   ██╗████████╗
 ██╔════╝██╔══██╗██║  ██║██╔══██╗████╗ ████║    ██╔══██╗██╔═══██╗██║████╗  ██║╚══██╔══╝
 ███████╗███████║███████║███████║██╔████╔██║    ██████╔╝██║   ██║██║██╔██╗ ██║   ██║   
@@ -9,7 +9,7 @@
 ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝    ╚═╝      ╚═════╝ ╚═╝╚═╝  ╚═══╝   ╚═╝   
 </pre>
 
-<h2 style="font-family: 'Courier New', Courier, monospace; margin-top: -5px; color: #fdf6e3;"> 
+<h2 style="font-family: 'Courier New', Courier, monospace; margin-top: -5px; color: #83f496;"> 
   Scraper & Pemantau Data IHSG 
 </h2>
 
