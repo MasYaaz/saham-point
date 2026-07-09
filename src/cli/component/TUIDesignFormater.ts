@@ -1,5 +1,5 @@
-import { RESET, GRAY } from "../theme";
-import { padColumn, padLine } from "./text-utils";
+import { RESET, GRAY, BOLD, CYAN } from "./TUITheme";
+import { padColumn, padLine } from "./TUITextFormat";
 
 export const TUI = {
   // Membuat baris dengan pembatas vertikal
@@ -48,4 +48,12 @@ export const TUI = {
     });
     return row;
   },
+
+  header: (title: string) => ` ${BOLD}${title}${RESET}`,
+
+  statusItem: (label: string, value: string, width: number) =>
+    padLine(` ➜ ${label} : ${value}`, width),
+
+  linkItem: (label: string, url: string, width: number) =>
+    padLine(` ➜ ${label} : ${CYAN}${url}${RESET}`, width),
 };
