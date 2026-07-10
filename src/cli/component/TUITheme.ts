@@ -7,3 +7,4 @@ export const GRAY = "\x1b[90m";
 export const BG_GREEN = "\x1b[42m\x1b[30m";
 export const BG_RED = "\x1b[48;5;124m\x1b[37m";
 export const YELLOW = "\x1b[33m";
+export const UNDERLINE = "\x1b[4m";

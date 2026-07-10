@@ -1,5 +1,13 @@
-import { VERSION } from "../../config";
-import { BG_GREEN, BG_RED, BOLD, CYAN, GREEN, RESET } from "./TUITheme";
+import { URL, VERSION } from "../../config";
+import {
+  BG_GREEN,
+  BG_RED,
+  BOLD,
+  CYAN,
+  GREEN,
+  RESET,
+  UNDERLINE,
+} from "./TUITheme";
 import { getMarketStatus } from "../../utils/marketStatus";
 import { fundamentalSyncState } from "../helper/runSyncDataAll";
 import { TUI } from "./TUIDesignFormater";
@@ -7,28 +15,42 @@ import { TUI } from "./TUIDesignFormater";
 const market = getMarketStatus();
 
 export function TUIHead() {
-  process.stdout.write("\x1b[2J\x1b[0;0H");
+  process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
   const BOX_WIDTH = 118;
-
+  const LOGO_WIDTH = 86;
+  const paddingSize = Math.max(0, Math.floor((BOX_WIDTH - LOGO_WIDTH) / 2));
+  const pad = " ".repeat(paddingSize);
   console.log(TUI.spacer());
   console.log(
-    ` ${GREEN}███████╗ █████╗ ██╗  ██╗ █████╗ ███╗   ███╗    ██████╗  ██████╗ ██╗███╗   ██╗████████╗${RESET}`,
+    `${pad}${GREEN}███████╗ █████╗ ██╗  ██╗ █████╗ ███╗   ███╗    ██████╗  ██████╗ ██╗███╗   ██╗████████╗${RESET}`,
   );
   console.log(
-    ` ${GREEN}██╔════╝██╔══██╗██║  ██║██╔══██╗████╗ ████║    ██╔══██╗██╔═══██╗██║████╗  ██║╚══██╔══╝${RESET}`,
+    `${pad}${GREEN}██╔════╝██╔══██╗██║  ██║██╔══██╗████╗ ████║    ██╔══██╗██╔═══██╗██║████╗  ██║╚══██╔══╝${RESET}`,
   );
   console.log(
-    ` ${GREEN}███████╗███████║███████║███████║██╔████╔██║    ██████╔╝██║   ██║██║██╔██╗ ██║   ██║   ${RESET}`,
+    `${pad}${GREEN}███████╗███████║███████║███████║██╔████╔██║    ██████╔╝██║   ██║██║██╔██╗ ██║   ██║${RESET}`,
   );
   console.log(
-    ` ${GREEN}╚════██║██╔══██║██╔══██║██╔══██║██║╚██╔╝██║    ██╔═══╝ ██║   ██║██║██║╚██╗██║   ██║   ${RESET}`,
+    `${pad}${GREEN}╚════██║██╔══██║██╔══██║██╔══██║██║╚██╔╝██║    ██╔═══╝ ██║   ██║██║██║╚██╗██║   ██║${RESET}`,
   );
   console.log(
-    ` ${GREEN}███████║██║  ██║██║  ██║██║  ██║██║ ╚═╝ ██║    ██║     ╚██████╔╝██║██║ ╚████║   ██║   ${RESET}`,
+    `${pad}${GREEN}███████║██║  ██║██║  ██║██║  ██║██║ ╚═╝ ██║    ██║     ╚██████╔╝██║██║ ╚████║   ██║${RESET}`,
   );
   console.log(
-    ` ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝    ╚═╝      ╚═════╝ ╚═╝╚═╝  ╚═══╝   ╚═╝   `,
+    `${pad}${GREEN}╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝    ╚═╝      ╚═════╝ ╚═╝╚═╝  ╚═══╝   ╚═╝${RESET}`,
   );
+  // ==========================================================================
+  // 2. HITUNG & TENGANHIN SUB-TEXT DI BAWAHNYA (Lebar: 29 Karakter)
+  // ==========================================================================
+  const subText = "Scraper Data IHSG & Endpoint API Untuk Agentic AI";
+  const subTextPaddingSize = Math.max(
+    0,
+    Math.floor((BOX_WIDTH - subText.length) / 2),
+  );
+  const textPad = " ".repeat(subTextPaddingSize); // Menghasilkan 44 spasi
+
+  // Dicetak tebal (BOLD) dan bergaris bawah (UNDERLINE) agar font terlihat dominan & besar
+  console.log(`${textPad}${GREEN}${BOLD}${UNDERLINE}${subText}${RESET}`);
   console.log(TUI.spacer());
   console.log(TUI.divider("top"));
 
@@ -76,7 +98,7 @@ export function TUIHead() {
 
   console.log(
     TUI.row(
-      ` ➜ Version       : Bedah Saham ${VERSION}`,
+      ` ➜ Version       : Saham Point ${VERSION}`,
       ` detail <cmd>   ➜ Contoh: 'detail BBRI' untuk bedah emiten`,
       54,
       63,
