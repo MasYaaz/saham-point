@@ -17,7 +17,7 @@ setTimeout(() => {
   readlineHead.prompt();
 }, 50);
 
-process.stdin.on("keypress", (key) => {
+process.stdin.on("keypress", (str, key) => {
   if (key.name === "right" || key.name === "tab") {
     if (acceptSuggestion()) return;
   }
