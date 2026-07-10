@@ -4,6 +4,7 @@ import { handleShowEmiten } from "./handler/handleShowEmiten";
 import { handleDetailEmiten } from "./handler/handleDetailEmiten";
 import { handleShowEndpoints } from "./handler/handleShowEndpoints";
 import { readlineHead } from "./component/readlineInterface";
+import { tuiLogState } from "./helper/safeLog";
 
 export async function handleCommand(
   line: string,
@@ -51,6 +52,8 @@ export async function handleCommand(
       break;
 
     case "clear":
+      tuiLogState.activeLogs = [];
+      tuiLogState.lastLogLinesCount = 0;
       TUIHead();
       break;
 

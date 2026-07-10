@@ -2,8 +2,8 @@ import readline from "readline";
 import { fundamentalSyncState, runSyncDataAll } from "../helper/runSyncDataAll";
 import { readlineHead } from "../component/readlineInterface";
 import { renderGhostSuggestion } from "../helper/autoCompletion";
+import { tuiLogState } from "../helper/safeLog";
 
-// sebelumnya cabang OFF tidak bisa clearInterval milik cabang ON.
 let syncAnimationTimer: ReturnType<typeof setInterval> | null = null;
 let syncSpinnerIndex = 0;
 let syncStartTime = 0;
@@ -21,28 +21,31 @@ function formatElapsed(ms: number): string {
 }
 
 function clearProgressLine() {
-  readline.moveCursor(process.stdout, 0, -1);
-  readline.cursorTo(process.stdout, 0);
-  readline.clearLine(process.stdout, 0);
-  readline.moveCursor(process.stdout, 0, 1);
-  readline.cursorTo(process.stdout, 0);
-  readline.clearLine(process.stdout, 0);
+  // Hitung total baris yang pernah digambar sebelumnya (Jumlah Log + 1 Baris Loading Bar)
+  const linesToClear = tuiLogState.lastLogLinesCount + 1;
+
+  if (linesToClear > 0) {
+    // Lompat ke baris paling atas dari seluruh blok TUI kita
+    readline.moveCursor(process.stdout, 0, -linesToClear);
+    for (let i = 0; i < linesToClear; i++) {
+      readline.cursorTo(process.stdout, 0);
+      readline.clearLine(process.stdout, 0);
+      readline.moveCursor(process.stdout, 0, 1);
+    }
+  }
+  tuiLogState.lastLogLinesCount = 0;
+  tuiLogState.activeLogs = [];
 }
 
-// Dipanggil dari KEDUA cabang (ON saat mau distop di tengah jalan,
-// maupun OFF) supaya animasi benar-benar berhenti seketika, bukan
-// nunggu batch berikutnya kelar dulu.
 function stopSyncAnimation() {
   if (syncAnimationTimer) {
     clearInterval(syncAnimationTimer);
     syncAnimationTimer = null;
   }
-  // Reset semua state supaya kalau sync dinyalakan lagi nanti,
-  // dia mulai fresh (bar 0%, timer 00:00) — bukan lanjut dari sisa lama.
+  clearProgressLine();
   syncSpinnerIndex = 0;
   syncStartTime = 0;
   syncLastState = { sudah: 0, total: 0, code: "-" };
-  clearProgressLine();
 }
 
 function drawProgress() {
@@ -60,29 +63,49 @@ function drawProgress() {
     `  ${spinner} [${prog}] ${Math.round(pct * 100)}%` +
     ` | ⏱ ${elapsed} | Emiten: ${code.padEnd(8, " ")}`;
 
-  readline.moveCursor(process.stdout, 0, -1);
+  // 1. PEMBERSIHAN DITENTUKAN OLEH FORMAT RENDER SEBELUMNYA
+  const linesToClear = tuiLogState.lastLogLinesCount + 1;
+  readline.moveCursor(process.stdout, 0, -linesToClear);
+  for (let i = 0; i < linesToClear; i++) {
+    readline.cursorTo(process.stdout, 0);
+    readline.clearLine(process.stdout, 0);
+    readline.moveCursor(process.stdout, 0, 1);
+  }
+
+  // Kursor sekarang berada tepat di posisi awal baris prompt asli.
+  // 2. DIGAMBAR DARI ATAS KE BAWAH SECARA BERTAHAP
+  const currentLogsCount = tuiLogState.activeLogs.length;
+
+  // Naik sejauh (Jumlah log aktif saat ini + 1 baris loading bar)
+  readline.moveCursor(process.stdout, 0, -(currentLogsCount + 1));
+
+  // Cetak daftar log aktif yang belum kedaluwarsa
+  for (const logMsg of tuiLogState.activeLogs) {
+    readline.cursorTo(process.stdout, 0);
+    process.stdout.write(logMsg + "\n"); // Safe karena posisi diatur manual
+  }
+
+  // Cetak loading bar tepat di bawah daftar log
   readline.cursorTo(process.stdout, 0);
-  readline.clearLine(process.stdout, 0);
   process.stdout.write(barText);
 
+  // Turun kembali ke baris terbawah tempat bersarangnya prompt input user
   readline.moveCursor(process.stdout, 0, 1);
   readline.cursorTo(process.stdout, 0);
-  readline.clearLine(process.stdout, 0);
 
+  // Refresh visual prompt bawaan readlineHead
   (readlineHead as any)._refreshLine();
   renderGhostSuggestion();
+
+  // 📝 Kunci jumlah baris log saat ini untuk referensi pembersihan di 100ms berikutnya
+  tuiLogState.lastLogLinesCount = currentLogsCount;
 }
 
-// Logika Sinkronisasi dipisah
 export async function handleSync(renderTUI: () => void) {
   // --- TOGGLE OFF (pause) ---
   if (fundamentalSyncState.isActive) {
     fundamentalSyncState.isActive = false;
-
-    // 🔑 Stop & reset animasi SEKARANG JUGA, jangan tunggu batch
-    // terakhir selesai — ini yang bikin stutter sebelumnya.
     stopSyncAnimation();
-
     renderTUI();
     process.stdout.write(
       "\n  🛑 Mengirim sinyal jeda, mohon tunggu emiten terakhir selesai...\n",
@@ -93,39 +116,42 @@ export async function handleSync(renderTUI: () => void) {
   // --- TOGGLE ON ---
   fundamentalSyncState.isActive = true;
   renderTUI();
-
   process.stdout.write(
     "  ⏳ Memulai sinkronisasi antrean, jalankan 'sync' kembali untuk menjeda...\n",
   );
   readlineHead.prompt(true);
 
-  // Mulai fresh setiap kali dinyalakan
   syncSpinnerIndex = 0;
   syncStartTime = Date.now();
   syncLastState = { sudah: 0, total: 0, code: "-" };
 
+  // Satu-satunya mesin pencetak visual ke terminal luar
   syncAnimationTimer = setInterval(() => {
     syncSpinnerIndex = (syncSpinnerIndex + 1) % spinnerFrames.length;
     drawProgress();
   }, 100);
 
   try {
-    const result = await runSyncDataAll((sudah, total, code) => {
+    await runSyncDataAll((sudah, total, code) => {
       if (!fundamentalSyncState.isActive) return;
+
+      // 🛡️ FIX KUNCI: Amankan state data terbaru di memori.
+      // JANGAN panggil drawProgress() di sini untuk menghindari tabrakan kursor TTY.
       syncLastState = { sudah, total, code };
-      drawProgress();
     });
 
-    if (!result.updated) {
-      stopSyncAnimation();
-      process.stdout.write(
-        "  ✅ Data sudah up-to-date. Tidak ada emiten yang perlu diperbarui (3 bulan terakhir).\n",
-      );
-      await new Promise((r) => setTimeout(r, 1500));
-    }
+    if (!fundamentalSyncState.isActive) return;
+
+    // Jika selesai secara natural tanpa dipause user
+    stopSyncAnimation();
+    process.stdout.write(
+      "  ✅ Data sudah up-to-date. Tidak ada emiten yang perlu diperbarui (3 bulan terakhir).\n",
+    );
+    await new Promise((r) => setTimeout(r, 1500));
+  } catch (err) {
+    // Tangkap jika ada error tak terduga dari level orkestrator
+    stopSyncAnimation();
   } finally {
-    // Jaga-jaga: kalau belum di-stop lewat cabang OFF (misal proses
-    // selesai natural tanpa user pause), pastikan tetap dibersihkan.
     stopSyncAnimation();
     fundamentalSyncState.isActive = false;
     renderTUI();

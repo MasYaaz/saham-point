@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { TradingViewFinancialHistory } from "../../types";
+import { safeLog } from "../../cli/helper/safeLog";
 
 type FinancialPeriodKey = number | "current" | "ttm";
 
@@ -255,7 +256,7 @@ export async function scrapeFundamentalTradingView(
           const targetUrl = `${baseUrl}/${tab.suffix}`;
           const response = await page.goto(targetUrl, {
             waitUntil: "domcontentloaded",
-            timeout: 20000, // Timeout aman untuk koneksi intermiten
+            timeout: 12000,
           });
 
           // 🛡️ KONSEP UTAMA: Proteksi menyeluruh terhadap segala bentuk kegagalan halaman (!response.ok)
@@ -282,9 +283,9 @@ export async function scrapeFundamentalTradingView(
             incompleteTabs.push(tab.suffix);
           }
         } catch (tabErr: any) {
-          console.error(
-            `[Scraper] Error parsial pada tab [${tab.suffix}] untuk ${code}:`,
-            tabErr?.message || tabErr,
+          safeLog(
+            "error",
+            `[Scraper] Error parsial pada tab [${tab.suffix}] untuk ${code}: ${tabErr?.message || tabErr}`,
           );
         } finally {
           // Tab wajib ditutup rapat di blok finally agar RAM tidak bocor (leak)
@@ -299,7 +300,8 @@ export async function scrapeFundamentalTradingView(
     // lain yang berhasil tetap dipakai.
     const allTabs404 = tab404.every(Boolean);
     if (allTabs404) {
-      console.warn(
+      safeLog(
+        "warn",
         `[Scraper] Emiten [${code}] tidak ditemukan atau seluruh halaman 404 di TradingView.`,
       );
       return false;
@@ -309,7 +311,8 @@ export async function scrapeFundamentalTradingView(
       if (is404) {
         const tab = TABS[index];
         if (tab && !incompleteTabs.includes(tab.suffix)) {
-          console.warn(
+          safeLog(
+            "warn",
             `[Scraper] Tab [${tab.suffix}] untuk [${code}] mengembalikan 404, tab lain tetap dipakai.`,
           );
           incompleteTabs.push(tab.suffix);
@@ -333,9 +336,9 @@ export async function scrapeFundamentalTradingView(
 
     return { data: cleanedHistory, incompleteTabs };
   } catch (error) {
-    console.error(
-      `[Scraper] Master TradingView Fundamental Scrape Error:`,
-      error,
+    safeLog(
+      "error",
+      `[Scraper] Master TradingView Fundamental Scrape Error: ${error}`,
     );
     return false;
   }

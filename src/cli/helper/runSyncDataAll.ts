@@ -1,5 +1,6 @@
 import db from "../../db";
 import { syncDataAll } from "../../scrapper";
+import { safeLog } from "./safeLog";
 
 export const fundamentalSyncState = {
   isActive: false,
@@ -68,7 +69,7 @@ export async function runSyncDataAll(
           // Increment counter lokal, tidak perlu query SELECT COUNT ke DB lagi!
           sudahTerprosesGlobal++;
 
-          if (status === "FAIL") {
+          if (status === "FAIL" || status === "INCOMPLETE") {
             const nowStr = new Date(
               new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }),
             )
@@ -108,11 +109,27 @@ export async function runSyncDataAll(
       }
     } catch (batchError: any) {
       // 🛡️ Proteksi tambahan agar jika syncDataAll crash (misal Playwright error fatal), loop tidak stuck
-      console.error(
+      safeLog(
+        "error",
         `\n[CLI Error] Kritis pada batch ini: ${batchError.message}`,
       );
-      totalFailGlobal += currentLimit;
-      sudahTerprosesGlobal += currentLimit; // Tetap majukan counter agar tidak loop selamanya
+
+      // 🛡️ FIX 3: Jika kegagalan disebabkan oleh kerusakan browser (Bukan masalah emiten),
+      // matikan putaran loop secara terhormat demi menyelamatkan siklus CPU container Docker.
+      if (batchError.message.includes("CRITICAL_BROWSER_FAILURE")) {
+        safeLog(
+          "error",
+          "❌ Menghentikan sinkronisasi secara paksa karena mesin browser bermasalah.",
+        );
+        fundamentalSyncState.isActive = false;
+        break;
+      }
+
+      const sisaBelumTerproses = Math.max(0, currentLimit - batchProcessed);
+      totalFailGlobal += sisaBelumTerproses;
+      sudahTerprosesGlobal += sisaBelumTerproses; // Tetap majukan counter agar tidak loop selamanya
+
+      await new Promise((resolve) => setTimeout(resolve, 5000));
     }
 
     // Jeda aman antar batch
@@ -127,16 +144,19 @@ export async function runSyncDataAll(
   if (getSisaAntrean() === 0) {
     const endTime = performance.now();
     const duration = ((endTime - startTime) / 1000 / 60).toFixed(2);
-    console.log(
+    safeLog(
+      "log",
       `\n\n 🏆 [Selesai] Seluruh data emiten berhasil disinkronisasi!`,
     );
-    console.log(
+    safeLog(
+      "log",
       `───────────────────────────────────────────────────────────────`,
     );
-    console.log(` ⏱️  Total Waktu Eksekusi : ${duration} menit`);
-    console.log(` 📈 Total Sukses Disuntik: ${totalSuccessGlobal} Emiten`);
-    console.log(` 📉 Total Gagal / Kosong : ${totalFailGlobal} Emiten`);
-    console.log(
+    safeLog("log", ` ⏱️  Total Waktu Eksekusi : ${duration} menit`);
+    safeLog("log", ` 📈 Total Sukses Disuntik: ${totalSuccessGlobal} Emiten`);
+    safeLog("log", ` 📉 Total Gagal / Kosong : ${totalFailGlobal} Emiten`);
+    safeLog(
+      "log",
       `───────────────────────────────────────────────────────────────\n`,
     );
   }

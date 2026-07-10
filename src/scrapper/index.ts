@@ -1,3 +1,4 @@
+import { safeLog } from "../cli/helper/safeLog";
 import db from "../db";
 import type { EmitenItem } from "../types";
 import { initPersistentBrowser } from "../utils/browser";
@@ -40,7 +41,7 @@ export async function syncMarketPrices(limit: number = 50): Promise<string> {
 }
 
 /**
- * 2b. FUNGSI KHUSUS FUNDAMENTAL & HISTORI (Dijalankan saat bursa tutup / maintenance / akselerasi TUI)
+ * FUNGSI KHUSUS FUNDAMENTAL & HISTORI
  * Mencari emiten yang historinya belum lengkap (< 4 tahun) atau yang data fundamentalnya paling usang
  * Sekaligus menyinkronkan harga pasar real-time agar seluruh kolom emiten terisi penuh.
  */
@@ -86,11 +87,7 @@ export async function syncDataAll(
   try {
     browserData = (await Promise.race([browserPromise, timeoutPromise])) as any;
   } catch (e: any) {
-    return {
-      success: 0,
-      fail: queue.length,
-      failedLogs: [`Gagal inisialisasi browser: ${e.message}`],
-    };
+    throw new Error(`CRITICAL_BROWSER_FAILURE: ${e.message}`);
   }
 
   const { browser, context } = browserData;
@@ -102,18 +99,11 @@ export async function syncDataAll(
       let status: "OK" | "FAIL" | "INCOMPLETE" = "OK";
 
       try {
-        // 2. Pastikan fetchPriceYahoo di dalam internalnya sudah punya AbortController timeout!
+        // Pastikan fetchPriceYahoo di dalam internalnya sudah punya AbortController timeout!
         await fetchPriceYahoo(item).catch(() =>
-          console.warn(`[Yahoo] Gagal fetch harga ${code}`),
+          safeLog("warn", `[Yahoo] Gagal fetch harga ${code}`),
         );
 
-        // 🛠️ FIX: sebelumnya updateFundamental() dipanggil DUA KALI untuk emiten
-        // yang sama — sekali sebagai `scraperPromise` (hasilnya tidak pernah
-        // dipakai/di-race) dan sekali lagi sebagai `fundStatus`. Efeknya setiap
-        // emiten di-scrape 2x (buang waktu, bandwidth, dan naikkan risiko
-        // rate-limit/block dari TradingView). Timeout internal 25 detik sudah
-        // ditangani di dalam updateFundamental() sendiri via Promise.race, jadi
-        // tidak perlu di-duplikasi di sini.
         const fundStatus = await updateFundamental(code, context);
 
         if (fundStatus === "INCOMPLETE") {
@@ -143,32 +133,63 @@ export async function syncDataAll(
     }
 
     // --- SESI 2: Perbaikan Data Bolong (Retry Stage) ---
-    if (retryQueue.length > 0) {
-      console.log(
-        `\n🛠️ Memperbaiki ${retryQueue.length} emiten dengan data tidak lengkap...`,
-      );
+    try {
+      if (retryQueue.length > 0) {
+        safeLog(
+          "log",
+          `🛠️ Memperbaiki ${retryQueue.length} emiten dengan data tidak lengkap...`,
+        );
 
-      for (const item of retryQueue) {
-        const retryCode = item.code.toUpperCase();
-        try {
-          const retryStatus = await updateFundamental(retryCode, context);
+        for (const item of retryQueue) {
+          const retryCode = item.code.toUpperCase();
+          try {
+            const retryStatus = await updateFundamental(retryCode, context);
 
-          if (retryStatus === true) {
-            successCount++;
-          } else {
-            // Jika kesempatan kedua masih gagal/incomplete, baru kita masukkan ke kelompok FAIL
+            if (retryStatus === true) {
+              successCount++;
+            } else {
+              // Jika kesempatan kedua masih gagal/incomplete, baru kita masukkan ke kelompok FAIL
+              failCount++;
+              failedLogs.push(
+                `${item.code}: Gagal dilengkapi pada sesi retry.`,
+              );
+            }
+          } catch (retryErr: any) {
             failCount++;
-            failedLogs.push(`${item.code}: Gagal dilengkapi pada sesi retry.`);
+            failedLogs.push(`${item.code} (Retry Error): ${retryErr.message}`);
           }
-        } catch (retryErr: any) {
-          failCount++;
-          failedLogs.push(`${item.code} (Retry Error): ${retryErr.message}`);
+
+          await new Promise((r) => setTimeout(r, 500));
         }
       }
+    } catch (sesi2Error: any) {
+      safeLog(
+        "error",
+        `[Fatal Sesi 2] Eror internal pada tahap retry: ${sesi2Error.message}`,
+      );
+      // Jika Sesi 2 crash total, sisa item di retryQueue otomatis dialokasikan sebagai kegagalan
+      const totalTerprosesSesi2 =
+        successCount + failCount - (queue.length - retryQueue.length);
+      const sisaTerbengkalai = Math.max(
+        0,
+        retryQueue.length - totalTerprosesSesi2,
+      );
+      failCount += sisaTerbengkalai;
     }
   } finally {
-    // Pastikan browser WAJIB ditutup agar lock file dilepas
-    await browser.close().catch(() => {});
+    if (browser) {
+      const closePromise = browser.close();
+      const timeoutClose = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Browser close hung")), 5000),
+      );
+
+      await Promise.race([closePromise, timeoutClose]).catch((err) => {
+        safeLog(
+          "warn",
+          `[Cleanup] Sinyal penutupan browser gantung: ${err.message}. Paksa lanjut.`,
+        );
+      });
+    }
   }
 
   return { success: successCount, fail: failCount, failedLogs };

@@ -1,3 +1,4 @@
+import { safeLog } from "../../cli/helper/safeLog";
 import db from "../../db";
 import type { EmitenItem } from "../../types";
 import { scrapeFundamentalTradingView } from "./scrapeFundamentalTradingView";
@@ -88,14 +89,15 @@ export async function updateFundamental(
         );
         isProfileSuccess = true;
       } else {
-        console.warn(
+        safeLog(
+          "warn",
           `[Scraper] Gagal mengekstrak profil TradingView untuk [${code}]`,
         );
       }
     } catch (err: any) {
-      console.error(
-        `[Scraper] Error saat memproses profil TradingView [${code}]:`,
-        err?.message || err,
+      safeLog(
+        "warn",
+        `[Scraper] Error saat memproses profil TradingView [${code}]: ${err?.message || err}`,
       );
     }
 
@@ -211,11 +213,6 @@ export async function updateFundamental(
             $emiten_id: stock.id,
             $year: year,
             $now: nowStr,
-            // 🛠️ FIX: semua fallback diganti dari `?? 0` menjadi `?? null`.
-            // 0 punya arti finansial nyata (ROE 0%, total_assets 0, dst), jadi
-            // memakainya sebagai penanda "data tidak berhasil di-scrape" akan
-            // diam-diam merusak/menghapus data historis yang valid saat
-            // di-COALESCE-kan lewat ON CONFLICT di atas.
             $revenue:
               values.revenue !== null && values.revenue !== undefined
                 ? String(values.revenue)
@@ -248,14 +245,15 @@ export async function updateFundamental(
         }
         isFundamentalSuccess = true;
       } else {
-        console.warn(
+        safeLog(
+          "warn",
           `[Scraper] Data fundamental TradingView kosong/null untuk [${code}]`,
         );
       }
     } catch (error) {
-      console.error(
-        `[Orchestrator] Gagal memproses data fundamental untuk emiten ${code}:`,
-        error,
+      safeLog(
+        "error",
+        `[Orchestrator] Gagal memproses data fundamental untuk emiten ${code}: ${error}`,
       );
     }
 
@@ -271,7 +269,8 @@ export async function updateFundamental(
     }
 
     if (isDataIncomplete) {
-      console.warn(
+      safeLog(
+        "warn",
         `[Scraper] Data untuk [${code}] parsial. Tab yang gagal: ${missingTabs.join(", ")}`,
       );
       return "INCOMPLETE";
@@ -298,7 +297,8 @@ export async function updateFundamental(
     return result;
   } catch (err: any) {
     clearTimeout(timeoutId); // 🧹 Bersihkan juga jika terkena timeout
-    console.error(
+    safeLog(
+      "error",
       `\n🚨 [INTERNAL TIMEOUT] Emiten [${code.toUpperCase()}]: ${err.message}`,
     );
     // Kembalikan false agar dianggap FAIL, loop luar akan otomatis lanjut ke emiten berikutnya tanpa freeze!
