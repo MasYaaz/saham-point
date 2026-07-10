@@ -149,4 +149,7 @@ db.run(`
   CREATE INDEX IF NOT EXISTS idx_histories_emiten_year ON stock_histories(emiten_id, year);
 `);
 
+db.run("PRAGMA journal_mode = WAL;");
+db.run("PRAGMA busy_timeout = 5000;");
+
 export default db;
