@@ -13,9 +13,9 @@
   Scraper & Pemantau Data IHSG 
 </h2>
 
-<img src="src/assets/TUI.png" alt="Tampilan Utama" width="1000" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.3); margin: 20px 0;">
+<img src="src/assets/TUI.webp" alt="Tampilan Utama" width="1000" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.3); margin: 20px 0;">
 
-<div style="text-align: center; max-width: 1000px; line-height: 1.6; font-size: 16px">
+<div style="text-align: center; max-width: 1000px; line-height: 1.6; font-size: 12px">
   
 Proyek ini adalah aplikasi komprehensif yang berfungsi sebagai <b>Command Line Interface (CLI)</b> dan <b>API Gateway</b>. Tujuannya adalah untuk mengambil, memproses, dan memantau data pasar saham secara <i>real-time</i> dari berbagai sumber. Aplikasi ini menyediakan pembaruan status melalui Antarmuka Pengguna Berbasis Teks (TUI), serta menyediakan serangkaian API RESTful yang kaya fitur untuk analisis mendalam.
 
@@ -34,16 +34,16 @@ Proyek ini adalah aplikasi komprehensif yang berfungsi sebagai <b>Command Line I
  &nbsp;&nbsp;&nbsp;&nbsp;_Menyediakan antarmuka baris perintah dengan kemampuan live monitoring dan manajemen data._
 
 ◈ **API Gateway**  
- &nbsp;&nbsp;&nbsp;&nbsp;_Menawarkan berbagai endpoint RESTful (`/api`) untuk akses data terprogram, termasuk profil saham & analisis teknikal._
+ &nbsp;&nbsp;&nbsp;&nbsp;_Menawarkan berbagai endpoint RESTful API untuk akses data terprogram, termasuk profil saham & analisis teknikal._
 
 ◈ **Data Scraping Otomatis**  
- &nbsp;&nbsp;&nbsp;&nbsp;_Menggunakan scraper canggih untuk mengambil data fundamental dan harga secara terjadwal (cron)._
+ &nbsp;&nbsp;&nbsp;&nbsp;_Menggunakan scraper untuk mengambil data fundamental dan harga secara terjadwal (cron)._
 
 ◈ **Database Persisten**  
- &nbsp;&nbsp;&nbsp;&nbsp;_Mengelola data pasar saham menggunakan database internal (`db/`) dengan riwayat 5 tahun._
+ &nbsp;&nbsp;&nbsp;&nbsp;_Mengelola data pasar saham menggunakan database internal dengan riwayat tahunan._
 
 ◈ **Fitur Analisis Lanjutan**  
- &nbsp;&nbsp;&nbsp;&nbsp;_Menyediakan screener canggih seperti Value Investing, Growth Screener, dan Dividend Hunters._
+ &nbsp;&nbsp;&nbsp;&nbsp;_Menyediakan endpoint api khusus untuk screener lanjutan seperti Value Investing, Growth Screener, dan Dividend Hunters._
 
 </div>
 </div>
@@ -54,7 +54,7 @@ Proyek ini adalah aplikasi komprehensif yang berfungsi sebagai <b>Command Line I
   🛠️ PENGATURAN & INSTALASI
 </h2>
 
-<div style="text-align: center; max-width: 1000px; line-height: 1.6; font-size: 16px; margin: 0 auto;">
+<div style="text-align: center; max-width: 1000px; line-height: 1.6; font-size: 12px; margin: 0 auto;">
 
 Proyek ini dibangun dengan <b>Bun</b> dan <b>TypeScript</b>. Pastikan kamu sudah memiliki <a href="https://bun.sh/">Bun</a> di sistemmu.
 
@@ -74,8 +74,6 @@ bun install
 
 ```bash
 bun point
-# atau langsung:
-bun run index.ts
 ```
 
 </div>
@@ -87,7 +85,7 @@ bun run index.ts
   ⚙️ PENGGUNAAN & PERINTAH (CLI)
 </h2>
 
-<div style="text-align: center; max-width: 1000px; line-height: 1.6; font-size: 16px; margin: 0 auto 20px;">
+<div style="text-align: center; max-width: 1000px; line-height: 1.6; font-size: 12px; margin: 0 auto 20px;">
 
 Aplikasi ini mendukung beberapa perintah utama melalui TUI-nya:
 
@@ -119,7 +117,7 @@ Aplikasi ini mendukung beberapa perintah utama melalui TUI-nya:
   📚 PANDUAN DOKUMENTASI PROYEK MENDALAM (ARSITEKTUR)
 </h2>
 
-<div style="text-align: center; max-width: 1000px; line-height: 1.6; font-size: 16px; margin: 0 auto 20px;">
+<div style="text-align: center; max-width: 1000px; line-height: 1.6; font-size: 12px; margin: 0 auto 20px;">
 
 Bagian ini memberikan rincian mendalam tentang arsitektur sistem, membagi fungsionalitas menjadi tiga pilar utama.
 
@@ -152,7 +150,6 @@ Bagian ini memberikan rincian mendalam tentang arsitektur sistem, membagi fungsi
 
 <div align="center" style="font-size: 14px; opacity: 0.85;">
 
-Proyek ini dibuat menggunakan Bun v1.3.14.  
-<a href="https://bun.com">Bun</a> adalah runtime JavaScript all-in-one yang cepat dan efisien.
+@2026. Saham Point Scrapper IHSG Data & Endpoint API for Agentic AI
 
 </div>
