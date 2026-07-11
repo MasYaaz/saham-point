@@ -10,7 +10,7 @@
 </pre>
 
 <h2 style="font-family: 'Courier New', Courier, monospace; margin-top: -5px; color: #83f496;"> 
-  Scraper & Pemantau Data IHSG 
+  Scrapper IHSG Data & Endpoint API for Agentic AI
 </h2>
 
 <img src="src/assets/TUI.webp" alt="Tampilan Utama" width="1000" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.3); margin: 20px 0;">
