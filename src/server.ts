@@ -108,9 +108,15 @@ app.get("/api", (c) => {
           path: "/api/technical/:code",
           method: "GET",
           description:
-            "Mengambil data historis candlestick (OHLCV) presisi dari Yahoo Finance Engine.",
+            "Mengambil data historis candlestick (OHLCV) presisi dari Yahoo Finance Engine. Mendukung kode ticker emiten BEI maupun indeks pasar makro (IHSG).",
           parameters: {
-            code: { type: "path_parameter", required: true, example: "BBRI" },
+            code: {
+              type: "path_parameter",
+              required: true,
+              description:
+                "Kode saham emiten (e.g., BBRI, TLKM) atau gunakan 'IHSG' untuk Indeks Harga Saham Gabungan.",
+              example: "IHSG",
+            },
             range: {
               type: "query_string",
               required: false,
@@ -400,7 +406,7 @@ app.get("/api/sector/:name", (c) => {
 
 /**
  * Rute: /api/technical/:code
- * Deskripsi: Integrasi Data Candlestick Bersih (OHLCV) Eksternal Yahoo Finance
+ * Deskripsi: Integrasi Data Candlestick Bersih (OHLCV) Eksternal Yahoo Finance (Mendukung Saham & IHSG)
  */
 app.get("/api/technical/:code", async (c) => {
   const code = c.req.param("code").toUpperCase();
@@ -419,7 +425,9 @@ app.get("/api/technical/:code", async (c) => {
     max: "3mo",
   };
   const interval = intervalMap[range] ?? "1d";
-  const ticker = `${code}.JK`;
+
+  // Kondisional mapping untuk menentukan ticker Yahoo Finance yang tepat
+  const ticker = code === "IHSG" ? "^JKSE" : `${code}.JK`;
 
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`;
@@ -432,7 +440,10 @@ app.get("/api/technical/:code", async (c) => {
       !result?.timestamp ||
       !result?.indicators?.quote?.[0]
     ) {
-      return c.json({ success: false, message: "Data tidak tersedia" }, 404);
+      return c.json(
+        { success: false, message: `Data untuk ${code} tidak tersedia` },
+        404,
+      );
     }
 
     const { meta, timestamp } = result;
@@ -449,12 +460,22 @@ app.get("/api/technical/:code", async (c) => {
 
     return c.json({
       success: true,
-      meta: { symbol: code, range, interval, currency: meta.currency },
+      meta: {
+        symbol: code,
+        yahoo_ticker: ticker,
+        range,
+        interval,
+        currency: meta.currency,
+      },
       data: history,
     });
   } catch (err: any) {
     return c.json(
-      { success: false, message: "Gagal memproses", error: err.message },
+      {
+        success: false,
+        message: "Gagal memproses data teknikal",
+        error: err.message,
+      },
       500,
     );
   }

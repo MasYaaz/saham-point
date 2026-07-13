@@ -238,96 +238,66 @@ export async function scrapeFundamentalTradingView(
   const masterHistory: Record<string | number, TradingViewFinancialHistory> =
     {};
 
-  // 🛠️ FIX: 404 dilacak PER-TAB, bukan flag tunggal.
-  // Sebelumnya satu tab 404 (mis. cash-flow tidak tersedia untuk saham tertentu)
-  // membuat SELURUH data dari 3 tab lain yang sudah berhasil ikut dibuang.
-  const tab404: boolean[] = new Array(TABS.length).fill(false);
-  const incompleteTabs: string[] = [];
+  // Pelacakan status per tab lebih detail
+  const tabStatus: { tab: string; state: "success" | "error" | "empty" }[] =
+    TABS.map((t) => ({
+      tab: t.suffix,
+      state: "error",
+    }));
 
   try {
-    // Jalankan scraping untuk 4 tab secara paralel menggunakan context yang sama
     await Promise.allSettled(
       TABS.map(async (tab, index) => {
         const page = await context.newPage();
         try {
-          // Jeda staggered agar browser tidak membuka 4 tab dalam milidetik yang persis sama
-          await new Promise((resolve) => setTimeout(resolve, index * 500));
-
-          const targetUrl = `${baseUrl}/${tab.suffix}`;
-          const response = await page.goto(targetUrl, {
+          await new Promise((r) => setTimeout(r, index * 500));
+          const response = await page.goto(`${baseUrl}/${tab.suffix}`, {
             waitUntil: "domcontentloaded",
-            timeout: 12000,
+            timeout: 15000,
           });
 
-          // 🛡️ KONSEP UTAMA: Proteksi menyeluruh terhadap segala bentuk kegagalan halaman (!response.ok)
+          // Cek jika halaman tidak ditemukan atau error
           if (!response || !response.ok()) {
-            if (response && response.status() === 404) {
-              tab404[index] = true;
-            }
-            // Langsung keluar (Short-circuit). Jangan tunggu selector!
-            return;
+            return; // state tetap 'error'
           }
 
-          // Tunggu hidrasi element di tab terkait dengan batas aman 6-8 detik
+          // Tunggu hidrasi element
           await page
             .waitForSelector(tab.waitSelector, { timeout: 8000 })
-            .catch(() => {
-              // Dibungkus catch agar jika timeout, tidak melempar error fatal ke Promise.allSettled
-            });
-
+            .catch(() => {});
           const html = await page.content();
+
           extractTableData(html, tab.mapping, masterHistory);
 
-          // Jika tab dimuat tapi datanya tidak berhasil terekstrak
-          if (!hasDataInTab(masterHistory, tab.mapping)) {
-            incompleteTabs.push(tab.suffix);
+          if (hasDataInTab(masterHistory, tab.mapping)) {
+            tabStatus[index]!.state = "success";
+          } else {
+            tabStatus[index]!.state = "empty";
           }
-        } catch (tabErr: any) {
-          safeLog(
-            "error",
-            `[Scraper] Error parsial pada tab [${tab.suffix}] untuk ${code}: ${tabErr?.message || tabErr}`,
-          );
+        } catch (tabErr) {
+          // state tetap 'error'
         } finally {
-          // Tab wajib ditutup rapat di blok finally agar RAM tidak bocor (leak)
           await page.close().catch(() => {});
         }
       }),
     );
 
-    // 🛠️ FIX: Emiten dianggap benar-benar tidak ada HANYA jika SEMUA tab 404.
-    // Kalau cuma sebagian tab 404 (mis. cash-flow tidak tersedia untuk saham
-    // finansial/bank), tab tersebut cukup ditandai incomplete, data dari tab
-    // lain yang berhasil tetap dipakai.
-    const allTabs404 = tab404.every(Boolean);
-    if (allTabs404) {
-      safeLog(
-        "warn",
-        `[Scraper] Emiten [${code}] tidak ditemukan atau seluruh halaman 404 di TradingView.`,
-      );
+    // Kumpulkan tab yang gagal/tidak lengkap
+    const incompleteTabs = tabStatus
+      .filter((s) => s.state !== "success")
+      .map((s) => s.tab);
+
+    // Jika semua tab gagal, return false
+    if (incompleteTabs.length === TABS.length) {
+      safeLog("warn", `[Scraper] Seluruh tab gagal untuk [${code}]`);
       return false;
     }
 
-    tab404.forEach((is404, index) => {
-      if (is404) {
-        const tab = TABS[index];
-        if (tab && !incompleteTabs.includes(tab.suffix)) {
-          safeLog(
-            "warn",
-            `[Scraper] Tab [${tab.suffix}] untuk [${code}] mengembalikan 404, tab lain tetap dipakai.`,
-          );
-          incompleteTabs.push(tab.suffix);
-        }
-      }
-    });
-
-    if (Object.keys(masterHistory).length === 0) return false;
-
-    // --- CLEANUP STAGE ---
+    // Pembersihan data kosong
     const cleanedHistory: Record<string | number, TradingViewFinancialHistory> =
       {};
     for (const [period, metrics] of Object.entries(masterHistory)) {
-      const metricValues = Object.values(metrics);
-      if (metricValues.some((val) => val !== null)) {
+      if (Object.values(metrics).some((val) => val !== null)) {
         cleanedHistory[period] = metrics;
       }
     }
@@ -336,10 +306,7 @@ export async function scrapeFundamentalTradingView(
 
     return { data: cleanedHistory, incompleteTabs };
   } catch (error) {
-    safeLog(
-      "error",
-      `[Scraper] Master TradingView Fundamental Scrape Error: ${error}`,
-    );
+    safeLog("error", `[Scraper] Master Error untuk ${code}: ${error}`);
     return false;
   }
 }

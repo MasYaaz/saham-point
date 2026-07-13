@@ -32,11 +32,15 @@ db.run(`
     dividend_yield NUMERIC NOT NULL DEFAULT 0.00,
     beta NUMERIC NOT NULL DEFAULT 1.00,
     price_updated_at TEXT NOT NULL DEFAULT '',
+    is_profile_complete INTEGER NOT NULL DEFAULT 0,
+    is_fundamental_complete INTEGER NOT NULL DEFAULT 0,
     fundamental_updated_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_emiten_sector ON emiten(sector);
+  CREATE INDEX IF NOT EXISTS idx_emiten_profile_complete ON emiten(is_profile_complete);
+  CREATE INDEX IF NOT EXISTS idx_emiten_fundamental_complete ON emiten(is_fundamental_complete);
 `);
 
 async function initializeAllStocks(database: Database): Promise<void> {

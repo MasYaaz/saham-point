@@ -59,13 +59,22 @@ export async function syncDataAll(
     | undefined;
   const totalEmiten = countRow?.total ?? 1;
 
+  // Query dengan logika flag yang sudah kita perbaiki
   const queue = db
     .query(
       `
-      SELECT id, code FROM emiten 
-      WHERE fundamental_updated_at < date('now', '-3 months') OR fundamental_updated_at IS NULL 
-      ORDER BY fundamental_updated_at ASC LIMIT ?
-    `,
+    SELECT id, code 
+    FROM emiten 
+    WHERE (
+      (is_profile_complete = 0 OR is_fundamental_complete = 0) 
+      AND (fundamental_updated_at < datetime('now', '-2 hours') OR fundamental_updated_at = '2000-01-01 00:00:00')
+    ) OR (
+      is_profile_complete = 1 AND is_fundamental_complete = 1 
+      AND (fundamental_updated_at < date('now', '-3 months') OR fundamental_updated_at = '2000-01-01 00:00:00')
+    )
+    ORDER BY (is_profile_complete + is_fundamental_complete) ASC, fundamental_updated_at ASC
+    LIMIT ?
+  `,
     )
     .all(limit) as EmitenItem[];
 
@@ -75,21 +84,11 @@ export async function syncDataAll(
   let successCount = 0;
   let failCount = 0;
   const failedLogs: string[] = [];
-  const retryQueue: EmitenItem[] = [];
 
-  // 1. Berikan proteksi Timeout global saat init browser agar tidak stuck selamanya
-  const browserPromise = initPersistentBrowser();
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Browser Init Timeout")), 30000),
-  );
-
-  let browserData;
-  try {
-    browserData = (await Promise.race([browserPromise, timeoutPromise])) as any;
-  } catch (e: any) {
+  // Init Browser
+  const browserData = await initPersistentBrowser().catch((e) => {
     throw new Error(`CRITICAL_BROWSER_FAILURE: ${e.message}`);
-  }
-
+  });
   const { browser, context } = browserData;
 
   try {
@@ -99,20 +98,22 @@ export async function syncDataAll(
       let status: "OK" | "FAIL" | "INCOMPLETE" = "OK";
 
       try {
-        // Pastikan fetchPriceYahoo di dalam internalnya sudah punya AbortController timeout!
         await fetchPriceYahoo(item).catch(() =>
-          safeLog("warn", `[Yahoo] Gagal fetch harga ${code}`),
+          safeLog("warn", `[Yahoo] Gagal ${code}`),
         );
-
         const fundStatus = await updateFundamental(code, context);
 
         if (fundStatus === "INCOMPLETE") {
-          retryQueue.push(item);
+          // Cukup log saja, jangan masukkan ke retryQueue
           status = "INCOMPLETE";
+          safeLog(
+            "warn",
+            `[Scraper] Data ${code} tidak lengkap, akan dicoba di putaran berikutnya.`,
+          );
         } else if (fundStatus === false) {
           failCount++;
           status = "FAIL";
-          failedLogs.push(`${code}: Scraping gagal total.`);
+          failedLogs.push(`${code}: Scraping gagal.`);
         } else {
           successCount++;
         }
@@ -122,74 +123,20 @@ export async function syncDataAll(
         failedLogs.push(`${code}: ${err.message}`);
       }
 
+      // Laporkan progres tanpa menghitung retryQueue
       if (onProgress)
-        onProgress(
-          successCount + failCount + retryQueue.length,
-          totalEmiten,
-          code,
-          status,
-        );
-      await new Promise((r) => setTimeout(r, 200));
-    }
+        onProgress(successCount + failCount, totalEmiten, code, status);
 
-    // --- SESI 2: Perbaikan Data Bolong (Retry Stage) ---
-    try {
-      if (retryQueue.length > 0) {
-        safeLog(
-          "log",
-          `🛠️ Memperbaiki ${retryQueue.length} emiten dengan data tidak lengkap...`,
-        );
-
-        for (const item of retryQueue) {
-          const retryCode = item.code.toUpperCase();
-          try {
-            const retryStatus = await updateFundamental(retryCode, context);
-
-            if (retryStatus === true) {
-              successCount++;
-            } else {
-              // Jika kesempatan kedua masih gagal/incomplete, baru kita masukkan ke kelompok FAIL
-              failCount++;
-              failedLogs.push(
-                `${item.code}: Gagal dilengkapi pada sesi retry.`,
-              );
-            }
-          } catch (retryErr: any) {
-            failCount++;
-            failedLogs.push(`${item.code} (Retry Error): ${retryErr.message}`);
-          }
-
-          await new Promise((r) => setTimeout(r, 500));
-        }
+      // BERSIHKAN MEMORI setiap kali selesai 1 emiten
+      const pages = context.pages();
+      for (const page of pages) {
+        await page.close().catch(() => {});
       }
-    } catch (sesi2Error: any) {
-      safeLog(
-        "error",
-        `[Fatal Sesi 2] Eror internal pada tahap retry: ${sesi2Error.message}`,
-      );
-      // Jika Sesi 2 crash total, sisa item di retryQueue otomatis dialokasikan sebagai kegagalan
-      const totalTerprosesSesi2 =
-        successCount + failCount - (queue.length - retryQueue.length);
-      const sisaTerbengkalai = Math.max(
-        0,
-        retryQueue.length - totalTerprosesSesi2,
-      );
-      failCount += sisaTerbengkalai;
+
+      await new Promise((r) => setTimeout(r, 500)); // Jeda lebih lama agar tidak terdeteksi bot
     }
   } finally {
-    if (browser) {
-      const closePromise = browser.close();
-      const timeoutClose = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Browser close hung")), 5000),
-      );
-
-      await Promise.race([closePromise, timeoutClose]).catch((err) => {
-        safeLog(
-          "warn",
-          `[Cleanup] Sinyal penutupan browser gantung: ${err.message}. Paksa lanjut.`,
-        );
-      });
-    }
+    if (browser) await browser.close();
   }
 
   return { success: successCount, fail: failCount, failedLogs };

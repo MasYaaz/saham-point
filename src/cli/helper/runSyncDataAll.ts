@@ -20,7 +20,14 @@ export async function runSyncDataAll(
   function getSisaAntrean(): number {
     const row = db
       .query(
-        `SELECT COUNT(*) as sisa FROM emiten WHERE fundamental_updated_at < date('now', '-3 months') OR fundamental_updated_at IS NULL`,
+        `SELECT COUNT(*) as sisa FROM emiten 
+       WHERE (
+         (is_profile_complete = 0 OR is_fundamental_complete = 0) 
+         AND (fundamental_updated_at < datetime('now', '-2 hours') OR fundamental_updated_at = '2000-01-01 00:00:00')
+       ) OR (
+         is_profile_complete = 1 AND is_fundamental_complete = 1 
+         AND (fundamental_updated_at < date('now', '-3 months') OR fundamental_updated_at = '2000-01-01 00:00:00')
+       )`,
       )
       .get() as { sisa: number } | undefined;
     return row?.sisa ?? 0;

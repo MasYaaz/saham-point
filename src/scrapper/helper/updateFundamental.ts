@@ -76,7 +76,7 @@ export async function updateFundamental(
             : (stock.per ?? null);
 
         db.run(
-          `UPDATE emiten SET description = ?, market_cap = ?, dividend = ?, dividend_yield = ?, beta = ?, per = ? WHERE id = ?`,
+          `UPDATE emiten SET description = ?, market_cap = ?, dividend = ?, dividend_yield = ?, beta = ?, per = ?, is_profile_complete = 1 WHERE id = ?`,
           [
             newDescription,
             newMarketCap,
@@ -177,10 +177,6 @@ export async function updateFundamental(
           ) VALUES (
             $emiten_id, $year, 'FY', $now, $now, $revenue, $gross_profit, $operating_income, $ebit, $net_profit, $eps, $average_basic_shares_outstanding, $ebitda, $total_assets, $total_liabilities, $total_equity, $total_debt, $net_debt, $cash_flow_operating, $cash_flow_investing, $cash_flow_financing, $free_cash_flow, $roe, $der, $pbv, $per
           )
-          -- 🛠️ FIX: pakai COALESCE(excluded.x, x) alih-alih excluded.x langsung.
-          -- Jika scraping gagal mengambil satu metrik tertentu untuk tahun ini,
-          -- $x akan bernilai NULL (lihat perubahan fallback di bawah), sehingga
-          -- COALESCE menjaga nilai lama yang sudah valid tidak ikut tertimpa NULL/0.
           ON CONFLICT(emiten_id, period, year) DO UPDATE SET
             revenue = COALESCE(excluded.revenue, stock_histories.revenue),
             gross_profit = COALESCE(excluded.gross_profit, stock_histories.gross_profit),
@@ -243,8 +239,24 @@ export async function updateFundamental(
             $per: values.per ?? null,
           });
         }
+
+        isDataIncomplete = result.incompleteTabs.length > 0;
+
+        if (!isDataIncomplete) {
+          db.run(
+            `UPDATE emiten SET fundamental_updated_at = ?, is_fundamental_complete = 1 WHERE id = ?`,
+            [nowStr, stock.id],
+          );
+        } else {
+          db.run(`UPDATE emiten SET is_fundamental_complete = 0 WHERE id = ?`, [
+            stock.id,
+          ]);
+        }
         isFundamentalSuccess = true;
       } else {
+        db.run(`UPDATE emiten SET is_fundamental_complete = 0 WHERE id = ?`, [
+          stock.id,
+        ]);
         safeLog(
           "warn",
           `[Scraper] Data fundamental TradingView kosong/null untuk [${code}]`,
@@ -255,15 +267,7 @@ export async function updateFundamental(
         "error",
         `[Orchestrator] Gagal memproses data fundamental untuk emiten ${code}: ${error}`,
       );
-    }
-
-    // ==========================================================================
-    // TAHAP 3: POST-PROCESS ANTRIAN & RETURN (INTEGRATED)
-    // ==========================================================================
-    const totalSuccess = isProfileSuccess || isFundamentalSuccess;
-    if (totalSuccess) {
-      db.run(`UPDATE emiten SET fundamental_updated_at = ? WHERE id = ?`, [
-        nowStr,
+      db.run(`UPDATE emiten SET is_fundamental_complete = 0 WHERE id = ?`, [
         stock.id,
       ]);
     }
@@ -276,7 +280,7 @@ export async function updateFundamental(
       return "INCOMPLETE";
     }
 
-    return totalSuccess;
+    return isProfileSuccess || isFundamentalSuccess;
   }
 
   // 2. Buat mekanisme balapan waktu (Promise.race)

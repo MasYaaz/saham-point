@@ -17,20 +17,27 @@ export interface EmitenItem {
   name?: string;
   sector?: string;
   description: string | null;
-  last_price: number; // Tambahkan ini karena dipakai di rumus divYield stock.last_price
-  previous_close?: number; // Optional pendukung update price
-  day_high?: number; // Optional pendukung update price
-  day_low?: number; // Optional pendukung update price
-  market_cap?: number;
-  dividend?: number;
-  dividend_yield?: number;
+  last_price: number;
+  previous_close?: number;
+  day_high?: number;
+  day_low?: number;
+  market_cap?: number | null; // Dibuat nullable karena bisa kosong
+  dividend?: number | null;
+  dividend_yield?: number | null;
   beta: number | null;
   pbv: number | null;
   per: number | null;
   roe: number | null;
   der: number | null;
+
+  // Flag baru harus ditambahkan agar TypeScript tahu kolom ini ada
+  is_profile_complete: number; // SQLite menyimpan boolean sebagai 0 atau 1
+  is_fundamental_complete: number;
+
   price_updated_at: string | null;
   fundamental_updated_at: string | null;
+  updated_at: string | null; // Penting untuk logika '-2 hours'
+  created_at: string | null;
 }
 
 export interface TradingViewFinancialHistory {
