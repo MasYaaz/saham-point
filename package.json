@@ -8,7 +8,8 @@
     "@types/node-cron": "^3.0.11"
   },
   "scripts": {
-    "point": "bun run --watch src/index.ts"
+    "point": "bun run --watch src/index.ts",
+    "cli": "bun run --watch src/cli.ts"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
@@ -16,7 +17,7 @@
   "dependencies": {
     "@clack/prompts": "^1.7.0",
     "cheerio": "^1.2.0",
-    "hono": "^4.12.28",
+    "hono": "^4.12.31",
     "node-cron": "^4.6.0",
     "playwright": "^1.61.1"
   }

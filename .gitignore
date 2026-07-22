@@ -37,5 +37,4 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 data/saham.db
 data/saham.db-shm
 data/saham.db-wal
-
-test
+data/test
