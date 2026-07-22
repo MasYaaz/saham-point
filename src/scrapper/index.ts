@@ -6,6 +6,56 @@ import { fetchPriceYahoo } from "./helper/fetchPriceYahoo";
 import { updateFundamental } from "./helper/updateFundamental";
 
 /**
+ * FIX (stuck setelah ~menit ke-10, ketahuan di putaran/batch kedua):
+ * `page.close()` di loop cleanup dan `browser.close()` di blok `finally`
+ * sebelumnya TIDAK dibungkus timeout sama sekali — beda dengan seluruh
+ * operasi Playwright lain di codebase ini (page.goto 12s, waitForSelector
+ * 8s, EMITEN_TIMEOUT 40s). `.catch(() => {})` hanya menangkap promise yang
+ * REJECT, bukan promise yang hang (tidak pernah resolve/reject).
+ *
+ * Kalau browser process jadi tidak responsif (mis. karena masih ada
+ * koneksi/page menggantung dari item sebelumnya — termasuk "zombie"
+ * internalWorker yang selamat dari EMITEN_TIMEOUT tapi masih berjalan di
+ * background, lihat catatan di updateFundamental.ts), maka `browser.close()`
+ * di akhir batch bisa menunggu SELAMANYA. Karena syncDataAll() dipanggil
+ * dengan `await` di dalam while-loop runSyncDataAll(), seluruh proses sync
+ * ikut freeze permanen persis di titik ini — gejalanya terlihat seperti
+ * "macet di putaran kedua" padahal sumbernya di ekor putaran pertama.
+ *
+ * withTimeout membungkus promise apa pun dengan batas waktu: kalau lewat,
+ * di-log dan dianggap selesai (gagal dengan aman) alih-alih menggantungkan
+ * seluruh proses. Ini fail-safe, bukan fix akar masalah kenapa browser bisa
+ * jadi tidak responsif — untuk itu perlu diagnosis lebih lanjut di
+ * utils/browser.ts (lihat catatan di bawah fungsi ini).
+ */
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T | null> {
+  let timeoutId: any;
+  const timeoutGuard = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => {
+      safeLog(
+        "error",
+        `[Watchdog] "${label}" melebihi batas aman ${ms}ms — dilewati paksa agar sync tidak macet permanen.`,
+      );
+      resolve(null);
+    }, ms);
+  });
+
+  try {
+    const result = await Promise.race([promise, timeoutGuard]);
+    clearTimeout(timeoutId);
+    return result;
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    safeLog("error", `[Watchdog] "${label}" error: ${err?.message || err}`);
+    return null;
+  }
+}
+
+/**
  * 2a. FUNGSI KHUSUS HARGA REAL-TIME (Dijalankan berkala saat bursa buka)
  * Mengambil antrian emiten yang harganya paling lama tidak diperbarui
  */
@@ -84,6 +134,11 @@ export async function syncDataAll(
   let successCount = 0;
   let failCount = 0;
   const failedLogs: string[] = [];
+  // FIX BUG #4: `retryQueue` sebelumnya dideklarasikan tapi tidak pernah
+  // diisi maupun diproses (sisa refactor "SESI 2" yang belum jadi) —
+  // dihapus karena menyesatkan pembaca kode. Jika retry per-batch memang
+  // diperlukan di masa depan, implementasikan ulang secara utuh (push item
+  // yang gagal ke sini, lalu proses di sesi kedua sebelum fungsi return).
 
   // Init Browser
   const browserData = await initPersistentBrowser().catch((e) => {
@@ -123,20 +178,39 @@ export async function syncDataAll(
         failedLogs.push(`${code}: ${err.message}`);
       }
 
-      // Laporkan progres tanpa menghitung retryQueue
+      // Laporkan progres
       if (onProgress)
         onProgress(successCount + failCount, totalEmiten, code, status);
 
       // BERSIHKAN MEMORI setiap kali selesai 1 emiten
+      // FIX: page.close() dibungkus watchdog 8s per page — sebelumnya bisa
+      // hang selamanya jika page tsb sedang stuck (mis. masih dipegang oleh
+      // zombie internalWorker yang lolos dari EMITEN_TIMEOUT), yang akan
+      // membekukan seluruh loop item berikutnya.
       const pages = context.pages();
       for (const page of pages) {
-        await page.close().catch(() => {});
+        await withTimeout(
+          page.close().catch(() => null),
+          8000,
+          `page.close() setelah item ${code}`,
+        );
       }
 
       await new Promise((r) => setTimeout(r, 500)); // Jeda lebih lama agar tidak terdeteksi bot
     }
   } finally {
-    if (browser) await browser.close();
+    // FIX (akar paling mungkin dari "stuck setelah menit ke-10 / putaran
+    // kedua"): browser.close() dibungkus watchdog 15s. Kalau browser process
+    // tidak responsif, kita LEPASKAN await-nya di sini supaya
+    // runSyncDataAll() bisa lanjut ke batch berikutnya alih-alih freeze
+    // permanen. Konsekuensinya: proses browser lama berpotensi jadi zombie
+    // di OS (leak) sampai initPersistentBrowser() pada panggilan berikutnya
+    // mendeteksi/menangani ini — cek utils/browser.ts untuk memastikan ada
+    // penanganan browser lama yang tidak sehat (mis. re-launch bersih, atau
+    // paksa kill process by PID) supaya tidak menumpuk chrome zombie di server.
+    if (browser) {
+      await withTimeout(browser.close(), 15000, "browser.close()");
+    }
   }
 
   return { success: successCount, fail: failCount, failedLogs };

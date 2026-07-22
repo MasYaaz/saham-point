@@ -1,40 +1,13 @@
+import app from "./endpoint";
 import { initBackgroundWorker } from "./scrapper/worker";
-import { handleCommand } from "./cli/command";
-import app from "./server";
-import { PORT } from "./config"; // Menggunakan konfigurasi terpusat
-import { readlineHead } from "./cli/component/readlineInterface";
-import {
-  acceptSuggestion,
-  clearSuggestion,
-  renderGhostSuggestion,
-} from "./cli/helper/autoCompletion";
-import { TUIHead } from "./cli/component/TUIHead";
+import { PORT } from "./config";
 
+// Inisialisasi worker di background
 initBackgroundWorker();
 
-setTimeout(() => {
-  TUIHead();
-  readlineHead.prompt();
-}, 50);
+console.log(`🚀 Saham Point Core Server running on port ${PORT}`);
 
-process.stdin.on("keypress", (str, key) => {
-  if (key.name === "right" || key.name === "tab") {
-    if (acceptSuggestion()) return;
-  }
-  renderGhostSuggestion();
-});
-
-// Handler utama saat tombol Enter ditekan
-readlineHead.on("line", async (line) => {
-  clearSuggestion();
-  await handleCommand(line, TUIHead);
-});
-
-readlineHead.on("SIGINT", () => {
-  console.log("\n👋 Mematikan core engine Saham Point...");
-  process.exit(0);
-});
-
+// Export standar untuk Bun Runtime
 export default {
   port: Number(PORT),
   fetch: app.fetch,

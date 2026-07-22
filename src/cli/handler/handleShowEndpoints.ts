@@ -1,4 +1,4 @@
-import app from "../../server";
+import app from "../../endpoint";
 import { BOLD, CYAN, GRAY, GREEN, RESET, YELLOW } from "../component/TUITheme";
 import { padColumn } from "../component/TUITextFormat";
 

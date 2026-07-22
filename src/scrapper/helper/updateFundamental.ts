@@ -14,7 +14,26 @@ export async function updateFundamental(
   code: string,
   context: any,
 ): Promise<UpdateStatus> {
-  const EMITEN_TIMEOUT = 25000; // ⏱️ Batas waktu maksimal 25 detik per emiten
+  // FIX BUG #7: Budget lama (25000ms) terlalu mepet. Worst-case realistis:
+  // scrapeTradingViewProfile (variabel, beberapa detik) + scrapeFundamentalTradingView
+  // (stagger maks 4 tab x 500ms = 1500ms + page.goto timeout 12000ms +
+  // waitForSelector timeout 8000ms untuk tab paling lambat = ~21.5 detik).
+  // Kalau profil scrape saja butuh >3-4 detik, total sudah bisa melebihi 25s
+  // walau sebenarnya scraping masih berjalan normal (bukan macet). Dinaikkan
+  // ke 40 detik agar timeout benar-benar hanya menangkap kasus stuck/hang,
+  // bukan menghukum request yang sekadar lambat.
+  const EMITEN_TIMEOUT = 40000;
+
+  // FIX BUG #6: Promise.race tidak benar-benar membatalkan internalWorker()
+  // saat timeoutPromise menang — worker tetap berjalan di background dan bisa
+  // menulis ke DB setelah loop di syncDataAll() sudah lanjut ke emiten
+  // berikutnya (menutup page milik context yang sama). `cancelled` dipakai
+  // sebagai guard: begitu timeout tercapai, semua write DB & langkah lanjutan
+  // di dalam internalWorker() akan di-skip. ini tidak menghentikan request
+  // jaringan yang sedang in-flight (JS tidak bisa cancel promise begitu saja
+  // tanpa AbortController di lapisan scraper), tapi mencegah side-effect
+  // (penulisan DB) yang telat dan salah urutan.
+  const cancelled = { value: false };
 
   // 1. Bungkus logika utama ke dalam sub-fungsi internal agar bisa di-race
   async function internalWorker(): Promise<UpdateStatus> {
@@ -46,6 +65,10 @@ export async function updateFundamental(
         tvProfileSymbol,
         context,
       );
+
+      // FIX BUG #6: sudah timeout sebelum profileData selesai -> jangan tulis DB.
+      if (cancelled.value) return false;
+
       if (profileData) {
         const dividend = profileData.last_dividend ?? 0;
         const rawYield =
@@ -101,11 +124,17 @@ export async function updateFundamental(
       );
     }
 
+    // FIX BUG #6: cek ulang sebelum masuk ke Tahap 2 yang lebih berat (4 tab).
+    if (cancelled.value) return false;
+
     // ==========================================================================
     // TAHAP 2: FETCH & UPDATE DATA FUNDAMENTAL HISTORIS
     // ==========================================================================
     try {
       const result = await scrapeFundamentalTradingView(cleanCode, context);
+
+      // FIX BUG #6: hasil datang setelah timeout -> jangan tulis DB sama sekali.
+      if (cancelled.value) return false;
 
       if (result && result.data && Object.keys(result.data).length > 0) {
         const scrapedFundamentalData = result.data;
@@ -240,8 +269,16 @@ export async function updateFundamental(
           });
         }
 
+        isFundamentalSuccess = true;
         isDataIncomplete = result.incompleteTabs.length > 0;
 
+        // FIX BUG #3 (klarifikasi kontrak, bukan perubahan perilaku):
+        // fundamental_updated_at SENGAJA tidak diisi di sini saat isDataIncomplete
+        // true. Ini BUKAN dimaksudkan supaya emiten "langsung" masuk antrean
+        // lagi (komentar lama menyesatkan) — caller (runSyncDataAll) yang akan
+        // mengisi fundamental_updated_at dengan cooldown 2 jam untuk status
+        // INCOMPLETE/FAIL, supaya emiten yang gagal terus tidak retry instan
+        // tapi tetap otomatis masuk antrean lagi setelah cooldown berakhir.
         if (!isDataIncomplete) {
           db.run(
             `UPDATE emiten SET fundamental_updated_at = ?, is_fundamental_complete = 1 WHERE id = ?`,
@@ -252,15 +289,28 @@ export async function updateFundamental(
             stock.id,
           ]);
         }
-        isFundamentalSuccess = true;
       } else {
-        db.run(`UPDATE emiten SET is_fundamental_complete = 0 WHERE id = ?`, [
-          stock.id,
-        ]);
+        // FIX BUG #2: sebelumnya cabang ini hanya log warning tanpa menandai
+        // apa pun. Jika isProfileSuccess true, fungsi ini akan `return true`
+        // (status "OK") walau data fundamental sama sekali gagal diambil.
+        // Akibatnya: is_fundamental_complete tetap 0, TAPI status "OK" membuat
+        // runSyncDataAll TIDAK mengisi cooldown fundamental_updated_at
+        // (cooldown hanya diisi untuk status FAIL/INCOMPLETE) -> emiten ini
+        // langsung diambil ulang di batch berikutnya, berpotensi retry-loop
+        // tanpa henti jika kegagalannya memang persisten (mis. simbol tidak
+        // ada di TradingView). Fix: tandai eksplisit sebagai incomplete supaya
+        // (a) is_fundamental_complete dipaksa 0, dan (b) fungsi ini pada
+        // akhirnya return "INCOMPLETE" (lihat blok `if (isDataIncomplete)` di
+        // bawah), sehingga caller menerapkan cooldown 2 jam sebagaimana mestinya.
         safeLog(
           "warn",
           `[Scraper] Data fundamental TradingView kosong/null untuk [${code}]`,
         );
+        isDataIncomplete = true;
+        missingTabs = ["ALL_TABS_EMPTY_OR_FAILED"];
+        db.run(`UPDATE emiten SET is_fundamental_complete = 0 WHERE id = ?`, [
+          stock.id,
+        ]);
       }
     } catch (error) {
       safeLog(
@@ -287,8 +337,13 @@ export async function updateFundamental(
   let timeoutId: any;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
+      // FIX BUG #6: tandai cancelled SEBELUM reject, supaya internalWorker
+      // yang masih berjalan di background bisa menghentikan side-effect
+      // (write DB) di titik-titik pengecekan yang sudah ditambahkan di atas.
+      cancelled.value = true;
       reject(
-        new Error(
+        safeLog(
+          "error",
           `Scraping [${code.toUpperCase()}] macet melampaui batas aman ${EMITEN_TIMEOUT / 1000} detik.`,
         ),
       );
