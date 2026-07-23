@@ -1,7 +1,7 @@
 import { safeLog } from "../cli/helper/safeLog";
 import db from "../db";
 import type { EmitenItem } from "../types";
-import { initPersistentBrowser } from "../utils/browser";
+import { createBatchContext, getOrInitBrowser } from "../utils/browser";
 import { fetchPriceYahoo } from "./helper/fetchPriceYahoo";
 import { updateFundamental } from "./helper/updateFundamental";
 
@@ -64,9 +64,9 @@ export async function syncMarketPrices(limit: number = 50): Promise<string> {
   const queue = db
     .query(
       `
-      SELECT id, code, description, last_price, beta, pbv, per, roe, der, price_updated_at, fundamental_updated_at 
-      FROM emiten 
-      ORDER BY price_updated_at ASC 
+      SELECT id, code, description, last_price, beta, pbv, per, roe, der, price_updated_at, fundamental_updated_at
+      FROM emiten
+      ORDER BY price_updated_at ASC
       LIMIT ?
       `,
     )
@@ -96,7 +96,7 @@ export async function syncMarketPrices(limit: number = 50): Promise<string> {
  * Sekaligus menyinkronkan harga pasar real-time agar seluruh kolom emiten terisi penuh.
  */
 export async function syncDataAll(
-  limit: number = 20,
+  limit: number = 50,
   onProgress?: (
     currentCount: number,
     totalEmiten: number,
@@ -105,21 +105,19 @@ export async function syncDataAll(
   ) => void,
 ): Promise<{ success: number; fail: number; failedLogs: string[] }> {
   const countRow = db.query("SELECT COUNT(*) as total FROM emiten").get() as
-    | { total: number }
-    | undefined;
+    { total: number } | undefined;
   const totalEmiten = countRow?.total ?? 1;
 
-  // Query dengan logika flag yang sudah kita perbaiki
   const queue = db
     .query(
       `
-    SELECT id, code 
-    FROM emiten 
+    SELECT id, code
+    FROM emiten
     WHERE (
-      (is_profile_complete = 0 OR is_fundamental_complete = 0) 
+      (is_profile_complete = 0 OR is_fundamental_complete = 0)
       AND (fundamental_updated_at < datetime('now', '-2 hours') OR fundamental_updated_at = '2000-01-01 00:00:00')
     ) OR (
-      is_profile_complete = 1 AND is_fundamental_complete = 1 
+      is_profile_complete = 1 AND is_fundamental_complete = 1
       AND (fundamental_updated_at < date('now', '-3 months') OR fundamental_updated_at = '2000-01-01 00:00:00')
     )
     ORDER BY (is_profile_complete + is_fundamental_complete) ASC, fundamental_updated_at ASC
@@ -134,17 +132,16 @@ export async function syncDataAll(
   let successCount = 0;
   let failCount = 0;
   const failedLogs: string[] = [];
-  // FIX BUG #4: `retryQueue` sebelumnya dideklarasikan tapi tidak pernah
-  // diisi maupun diproses (sisa refactor "SESI 2" yang belum jadi) —
-  // dihapus karena menyesatkan pembaca kode. Jika retry per-batch memang
-  // diperlukan di masa depan, implementasikan ulang secara utuh (push item
-  // yang gagal ke sini, lalu proses di sesi kedua sebelum fungsi return).
 
-  // Init Browser
-  const browserData = await initPersistentBrowser().catch((e) => {
+  // 1. Ambil instance Browser global (tidak akan relaunch jika sudah ada)
+  const browser = await getOrInitBrowser().catch((e) => {
     throw new Error(`CRITICAL_BROWSER_FAILURE: ${e.message}`);
   });
-  const { browser, context } = browserData;
+
+  // 2. Buat BrowserContext baru yang super ringan khusus untuk batch ini
+  const context = await createBatchContext(browser).catch((e) => {
+    throw new Error(`CRITICAL_CONTEXT_FAILURE: ${e.message}`);
+  });
 
   try {
     // --- SESI 1: Scraping Utama ---
@@ -159,7 +156,6 @@ export async function syncDataAll(
         const fundStatus = await updateFundamental(code, context);
 
         if (fundStatus === "INCOMPLETE") {
-          // Cukup log saja, jangan masukkan ke retryQueue
           status = "INCOMPLETE";
           safeLog(
             "warn",
@@ -182,35 +178,30 @@ export async function syncDataAll(
       if (onProgress)
         onProgress(successCount + failCount, totalEmiten, code, status);
 
-      // BERSIHKAN MEMORI setiap kali selesai 1 emiten
-      // FIX: page.close() dibungkus watchdog 8s per page — sebelumnya bisa
-      // hang selamanya jika page tsb sedang stuck (mis. masih dipegang oleh
-      // zombie internalWorker yang lolos dari EMITEN_TIMEOUT), yang akan
-      // membekukan seluruh loop item berikutnya.
+      // BERSIHKAN MEMORI TAB SETIAP EMITEN SELESAI
       const pages = context.pages();
       for (const page of pages) {
-        await withTimeout(
-          page.close().catch(() => null),
-          8000,
-          `page.close() setelah item ${code}`,
-        );
+        try {
+          await withTimeout(
+            page.close().catch(() => null),
+            8000,
+            `page.close() setelah item ${code}`,
+          );
+        } catch (pageErr) {
+          safeLog(
+            "warn",
+            `[Watchdog] Tab close timeout pada ${code}. Menghentikan pembersihan sisa tab karena Chromium tidak responsif.`,
+          );
+          break;
+        }
       }
 
-      await new Promise((r) => setTimeout(r, 500)); // Jeda lebih lama agar tidak terdeteksi bot
+      await new Promise((r) => setTimeout(r, 500));
     }
   } finally {
-    // FIX (akar paling mungkin dari "stuck setelah menit ke-10 / putaran
-    // kedua"): browser.close() dibungkus watchdog 15s. Kalau browser process
-    // tidak responsif, kita LEPASKAN await-nya di sini supaya
-    // runSyncDataAll() bisa lanjut ke batch berikutnya alih-alih freeze
-    // permanen. Konsekuensinya: proses browser lama berpotensi jadi zombie
-    // di OS (leak) sampai initPersistentBrowser() pada panggilan berikutnya
-    // mendeteksi/menangani ini — cek utils/browser.ts untuk memastikan ada
-    // penanganan browser lama yang tidak sehat (mis. re-launch bersih, atau
-    // paksa kill process by PID) supaya tidak menumpuk chrome zombie di server.
-    if (browser) {
-      await withTimeout(browser.close(), 15000, "browser.close()");
-    }
+    // 3. ⚠️ HANYA TUTUP CONTEXT BATCH INI!
+    // Biner Browser utama tetap dibiarkan hidup di memory untuk batch berikutnya.
+    await context.close().catch(() => {});
   }
 
   return { success: successCount, fail: failCount, failedLogs };

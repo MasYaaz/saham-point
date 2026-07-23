@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import type { TradingViewFinancialHistory } from "../../types";
 import { safeLog } from "../../cli/helper/safeLog";
+import { checkIfBlockedByCaptcha } from "../../utils/browser";
 
 type FinancialPeriodKey = number | "current" | "ttm";
 
@@ -255,6 +256,20 @@ export async function scrapeFundamentalTradingView(
             waitUntil: "domcontentloaded",
             timeout: 15000,
           });
+
+          // 🛡️ 1. DETEKSI CAPTCHA / CLOUDFLARE DI SINI (Sebelum waitForSelector)
+          const captchaCheck = await checkIfBlockedByCaptcha(
+            page,
+            response?.status(),
+          );
+
+          if (captchaCheck.isBlocked) {
+            safeLog(
+              "warn",
+              `[Scraper] [${code}] Tab (${tab.suffix}) terhalang: ${captchaCheck.reason}`,
+            );
+            return; // Batalkan proses tab ini (state tetap 'error')
+          }
 
           // Cek jika halaman tidak ditemukan atau error
           if (!response || !response.ok()) {
