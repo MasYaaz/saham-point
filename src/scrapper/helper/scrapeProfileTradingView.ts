@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import type { ScrapedProfile } from "../../types";
-import { parseRawData } from "../../utils/parseRawData";
+import { parseRawData } from "../../utils/scrapper/parseRawData";
 
 function cleanText(raw: string): string {
   return raw.replace(/[\u200E\u200F\u202A-\u202E\u00A0\u202F]/g, "").trim();

@@ -1,7 +1,7 @@
 import db from "../../db";
 import { BOLD, GREEN, RESET } from "../component/TUITheme";
 import type { EmitenItem } from "../../types";
-import { formatAbbr } from "../../utils/formatMoney";
+import { formatAbbr } from "../../utils/scrapper/formatMoney";
 import { TUI } from "../component/TUIDesignFormater";
 
 interface StockHistoryData {

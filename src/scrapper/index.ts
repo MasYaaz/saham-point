@@ -1,7 +1,10 @@
 import { safeLog } from "../cli/helper/safeLog";
 import db from "../db";
 import type { EmitenItem } from "../types";
-import { createBatchContext, getOrInitBrowser } from "../utils/browser";
+import {
+  createBatchContext,
+  getOrInitBrowser,
+} from "../utils/scrapper/browser";
 import { fetchPriceYahoo } from "./helper/fetchPriceYahoo";
 import { updateFundamental } from "./helper/updateFundamental";
 

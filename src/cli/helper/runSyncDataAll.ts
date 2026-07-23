@@ -1,6 +1,6 @@
 import db from "../../db";
 import { syncDataAll } from "../../scrapper";
-import { closeGlobalBrowser } from "../../utils/browser";
+import { closeGlobalBrowser } from "../../utils/scrapper/browser";
 import { safeLog } from "./safeLog";
 
 export const fundamentalSyncState = {

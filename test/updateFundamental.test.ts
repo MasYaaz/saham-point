@@ -19,7 +19,6 @@ const mockRun = mock();
 const mockPrepareRun = mock();
 const mockPrepare = mock(() => ({ run: mockPrepareRun }));
 
-// Pastikan path ini sesuai dengan letak file db.ts ente dari folder test/
 mock.module("../src/db/index.ts", () => ({
   default: {
     query: mock(() => ({ get: mockGet })),

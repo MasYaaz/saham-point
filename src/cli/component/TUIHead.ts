@@ -8,7 +8,7 @@ import {
   RESET,
   UNDERLINE,
 } from "./TUITheme";
-import { getMarketStatus } from "../../utils/marketStatus";
+import { getMarketStatus } from "../../utils/scrapper/marketStatus";
 import { fundamentalSyncState } from "../helper/runSyncDataAll";
 import { TUI } from "./TUIDesignFormater";
 

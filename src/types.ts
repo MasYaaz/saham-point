@@ -102,3 +102,50 @@ export interface YahooChartResponse {
     }>;
   };
 }
+
+// Sync type safety dengan interface database terbaru
+export interface EmitenDbRow {
+  id: number;
+  code: string;
+  name: string;
+  sector: string;
+  description: string | null;
+  last_price: number;
+  previous_close: number | null;
+  day_high: number | null;
+  day_low: number | null;
+  market_cap: number | null;
+  pbv: number | null;
+  per: number | null;
+  roe: number | null;
+  der: number | null;
+  dividend: number | null;
+  dividend_yield: number | null;
+  beta: number | null;
+  price_updated_at: string | null;
+  fundamental_updated_at: string | null;
+}
+
+export const AVAILABLE_SECTORS = [
+  "Healthcare",
+  "Basic Materials",
+  "Financials",
+  "Transportation & Logistic",
+  "Technology",
+  "Consumer Non-Cyclicals",
+  "Industrials",
+  "Energy",
+  "Consumer Cyclicals",
+  "Infrastructures",
+  "Properties & Real Estate",
+] as const;
+
+// Interface data Candlestick murni
+export interface CandleHistory {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}

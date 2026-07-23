@@ -1,5 +1,8 @@
 import { scrapeTradingViewProfile } from "../src/scrapper/helper/scrapeProfileTradingView";
-import { initPersistentBrowser } from "../src/utils/browser";
+import {
+  createBatchContext,
+  getOrInitBrowser,
+} from "../src/utils/scrapper/browser";
 
 async function runProfileTest() {
   const ticker = "AYLS";
@@ -9,7 +12,17 @@ async function runProfileTest() {
     `\n🔍 Memulai Pengujian Mandiri Scraper Profil TradingView untuk: ${symbol}...`,
   );
 
-  const { browser, context } = await initPersistentBrowser();
+  // Siapkan persistent browser & context terproteksi
+  // Ambil instance Browser global (tidak akan relaunch jika sudah ada)
+  const browser = await getOrInitBrowser().catch((e) => {
+    throw new Error(`CRITICAL_BROWSER_FAILURE: ${e.message}`);
+  });
+
+  // Buat BrowserContext baru yang super ringan khusus untuk batch ini
+  const context = await createBatchContext(browser).catch((e) => {
+    throw new Error(`CRITICAL_CONTEXT_FAILURE: ${e.message}`);
+  });
+
   const startTime = performance.now();
 
   try {
