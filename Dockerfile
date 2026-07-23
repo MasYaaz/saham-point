@@ -2,40 +2,26 @@
 FROM oven/bun:1.3-slim AS base
 WORKDIR /app
 
-# Mengunci jalur installasi browser Playwright agar predictable
+# Mengunci lokasi penyimpanan biner Chromium Playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# Install dependencies sistem yang diperlukan oleh Playwright
-RUN apt-get update && apt-get install -y \
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libxfixes3 \
-    libxshmfence1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install dependencies aplikasi
+# 1. Copy dulu file lock dependency
 COPY package.json bun.lock ./
+
+# 2. Install dependencies aplikasi
 RUN bun install --frozen-lockfile
 
-# Install browser Playwright khusus chromium di folder yang ditentukan env
-RUN bunx playwright install chromium
+# 3. Install Chromium beserta dependency OS secara otomatis + Cache Mount
+# --with-deps menggantikan semua perintah apt-get install manual di atas
+# --mount=type=cache mengunci biner browser di lokal Docker daemon
+RUN --mount=type=cache,target=/ms-playwright \
+    --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    bunx playwright install --with-deps chromium
 
-# Copy seluruh source code
+# 4. Copy seluruh source code (ditaruh paling bawah agar cache layer atas tidak jebol)
 COPY . .
 
-# Expose port Hono API
 EXPOSE 3000
 
 CMD ["bun", "point"]
