@@ -1,5 +1,5 @@
 import db from "../../db";
-import { syncDataAll } from "../../scrapper";
+import { syncDataAll } from "../scrapper";
 import { closeGlobalBrowser } from "../../utils/scrapper/browser";
 import { safeLog } from "./safeLog";
 

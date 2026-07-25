@@ -1,6 +1,6 @@
-import { YAHOO_HEADERS } from "../../config";
-import db from "../../db";
-import type { EmitenItem } from "../../types";
+import { YAHOO_HEADERS } from "../../../config";
+import db from "../../../db";
+import type { EmitenItem } from "../../../types";
 
 /**
  * 3. Logika pengambilan harga dari Yahoo Finance API Chart (Tabel Emiten)

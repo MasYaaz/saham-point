@@ -1,4 +1,4 @@
-import { scrapeTradingViewProfile } from "../src/scrapper/helper/scrapeProfileTradingView";
+import { scrapeTradingViewProfile } from "../src/cli/scrapper/helper/scrapeProfileTradingView";
 import {
   createBatchContext,
   getOrInitBrowser,

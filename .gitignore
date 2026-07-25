@@ -38,3 +38,6 @@ data/saham.db
 data/saham.db-shm
 data/saham.db-wal
 data/test
+
+# Binary
+.saham-point

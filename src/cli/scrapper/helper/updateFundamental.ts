@@ -1,6 +1,6 @@
-import { safeLog } from "../../cli/helper/safeLog";
-import db from "../../db";
-import type { EmitenItem } from "../../types";
+import { safeLog } from "../../../cli/helper/safeLog";
+import db from "../../../db";
+import type { EmitenItem } from "../../../types";
 import { scrapeFundamentalTradingView } from "./scrapeFundamentalTradingView";
 import { scrapeTradingViewProfile } from "./scrapeProfileTradingView";
 

@@ -1,15 +1,20 @@
-import app from "./endpoint";
-import { initBackgroundWorker } from "./scrapper/worker";
-import { PORT } from "./config";
+#!/usr/bin/env bun
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { createMcpServer } from "./mcp";
 
-// Inisialisasi worker di background
-initBackgroundWorker();
+async function main() {
+  try {
+    const mcpServer = createMcpServer();
+    const transport = new StdioServerTransport();
 
-console.log(`🚀 Saham Point Core Server running on port ${PORT}`);
+    await mcpServer.connect(transport);
 
-// Export standar untuk Bun Runtime
-export default {
-  port: Number(PORT),
-  fetch: app.fetch,
-  development: false,
-};
+    // Menggunakan console.error agar log tidak mengotori channel JSON-RPC di stdout
+    console.error("🚀 Saham Point MCP Server running via Stdio transport");
+  } catch (error) {
+    console.error("Fatal error starting MCP Stdio Server:", error);
+    process.exit(1);
+  }
+}
+
+main();

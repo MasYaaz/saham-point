@@ -1,25 +1,29 @@
 {
   "name": "saham-point",
-  "module": "index.ts",
+  "module": "src/index.ts",
   "type": "module",
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/node": "^26.1.1",
     "@types/node-cron": "^3.0.11"
   },
   "scripts": {
-    "point": "bun run --watch src/index.ts",
-    "cli": "bun run --watch src/cli.ts"
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "cli": "bun run src/cli.ts",
+    "worker": "bun run src/worker.ts",
+    "worker:dev": "bun run --watch src/worker.ts"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "cheerio": "^1.2.0",
-    "hono": "^4.12.31",
     "node-cron": "^4.6.0",
-    "playwright": "^1.61.1",
+    "playwright": "^1.62.0",
     "rss-parser": "^3.13.0",
     "technicalindicators": "^3.1.0"
   }

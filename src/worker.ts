@@ -1,5 +1,6 @@
+#!/usr/bin/env bun
 import cron from "node-cron";
-import { syncMarketPrices } from ".";
+import { syncMarketPrices } from "./cli/scrapper";
 
 export function initBackgroundWorker() {
   console.log(

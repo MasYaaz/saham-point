@@ -1,24 +1,17 @@
-import { Hono } from "hono";
 import db from "../db";
 import type { EmitenDbRow, TradingViewFinancialHistory } from "../types";
-import { fetchEmitenNews } from "../services/newsService";
-import { parseLimit } from "../utils/endpoint/parseLimit";
+import { fetchEmitenNews } from "./newsService";
 
-export const sahamRouter = new Hono();
-
-// GET /api/saham/:code
-sahamRouter.get("/:code", (c) => {
-  const code = c.req.param("code").toUpperCase();
+/**
+ * Mengambil profil emiten beserta histori keuangan tahunannya
+ */
+export function getEmitenProfile(code: string) {
+  const formattedCode = code.toUpperCase();
   const emiten = db
     .query("SELECT * FROM emiten WHERE code = ? LIMIT 1")
-    .get(code) as EmitenDbRow | undefined;
+    .get(formattedCode) as EmitenDbRow | undefined;
 
-  if (!emiten) {
-    return c.json(
-      { success: false, message: `Ticker ${code} tidak ditemukan` },
-      404,
-    );
-  }
+  if (!emiten) return null;
 
   const histories = db
     .query(
@@ -26,22 +19,19 @@ sahamRouter.get("/:code", (c) => {
     )
     .all(emiten.id) as TradingViewFinancialHistory[];
 
-  return c.json({ success: true, data: { ...emiten, histories } });
-});
+  return { ...emiten, histories };
+}
 
-// GET /api/saham/:code/history
-sahamRouter.get("/:code/history", (c) => {
-  const code = c.req.param("code").toUpperCase();
+/**
+ * Mengambil histori keuangan tahunan murni
+ */
+export function getEmitenHistories(code: string) {
+  const formattedCode = code.toUpperCase();
   const emiten = db
     .query("SELECT id FROM emiten WHERE code = ? LIMIT 1")
-    .get(code) as { id: number } | undefined;
+    .get(formattedCode) as { id: number } | undefined;
 
-  if (!emiten) {
-    return c.json(
-      { success: false, message: `Ticker ${code} tidak ditemukan` },
-      404,
-    );
-  }
+  if (!emiten) return null;
 
   const histories = db
     .query(
@@ -53,22 +43,19 @@ sahamRouter.get("/:code/history", (c) => {
     )
     .all(emiten.id) as TradingViewFinancialHistory[];
 
-  return c.json({
-    success: true,
-    code,
-    count: histories.length,
-    data: histories,
-  });
-});
+  return histories;
+}
 
-// GET /api/saham/:code/growth
-sahamRouter.get("/:code/growth", (c) => {
-  const code = c.req.param("code").toUpperCase();
-  const emiten = db.query("SELECT id FROM emiten WHERE code = ?").get(code) as
-    { id: number } | undefined;
+/**
+ * Menganalisis tren pertumbuhan YoY (Revenue & Net Profit)
+ */
+export function getEmitenGrowth(code: string) {
+  const formattedCode = code.toUpperCase();
+  const emiten = db
+    .query("SELECT id FROM emiten WHERE code = ?")
+    .get(formattedCode) as { id: number } | undefined;
 
-  if (!emiten)
-    return c.json({ success: false, message: "Emiten tidak ditemukan" }, 404);
+  if (!emiten) return null;
 
   const histories = db
     .query(
@@ -101,19 +88,21 @@ sahamRouter.get("/:code/growth", (c) => {
     };
   });
 
-  return c.json({ success: true, code, trends: growthTrends });
-});
+  return growthTrends;
+}
 
-// GET /api/saham/:code/valuation
-sahamRouter.get("/:code/valuation", (c) => {
-  const code = c.req.param("code").toUpperCase();
+/**
+ * Kalkulasi estimasi nilai wajar PER vs Rata-rata PER 5 Tahun
+ */
+export function getEmitenValuation(code: string) {
+  const formattedCode = code.toUpperCase();
   const data = db
     .query(
       `SELECT e.last_price, e.per as current_per, AVG(h.per) as avg_5y_per
        FROM emiten e JOIN stock_histories h ON e.id = h.emiten_id
        WHERE e.code = ? AND h.per IS NOT NULL AND h.per != 0 GROUP BY e.id`,
     )
-    .get(code) as
+    .get(formattedCode) as
     | {
         last_price: number;
         current_per: number | null;
@@ -122,14 +111,7 @@ sahamRouter.get("/:code/valuation", (c) => {
     | undefined;
 
   if (!data || !data.current_per || !data.avg_5y_per) {
-    return c.json(
-      {
-        success: false,
-        message:
-          "Data historis tidak mencukupi untuk kalkulasi rata-rata nilai wajar",
-      },
-      404,
-    );
+    return null;
   }
 
   const discount = data.avg_5y_per - data.current_per;
@@ -138,40 +120,43 @@ sahamRouter.get("/:code/valuation", (c) => {
       ? "Undervalued vs Historical Average"
       : "Overvalued vs Historical Average";
 
-  return c.json({
-    success: true,
-    code,
+  return {
+    code: formattedCode,
     status,
     current_per: data.current_per,
     avg_historical_per: parseFloat(data.avg_5y_per.toFixed(2)),
     potensi_upside_per_points: parseFloat(discount.toFixed(2)),
-  });
-});
+  };
+}
 
-// GET /api/saham/:code/news
-sahamRouter.get("/:code/news", async (c) => {
-  const code = c.req.param("code").toUpperCase();
-  const limit = parseLimit(c.req.query("limit"), 10, 50);
-  const lang = (c.req.query("lang") as "id" | "en") ?? "id";
-
+/**
+ * Fetch berita finansial emiten
+ */
+export async function getEmitenNewsData(
+  code: string,
+  limit: number = 10,
+  lang: "id" | "en" = "id",
+) {
+  const formattedCode = code.toUpperCase();
   const emiten = db
     .query("SELECT name FROM emiten WHERE code = ? LIMIT 1")
-    .get(code) as { name: string } | undefined;
+    .get(formattedCode) as { name: string } | undefined;
 
-  if (!emiten && code !== "IHSG") {
-    return c.json(
-      { success: false, message: `Ticker ${code} tidak ditemukan` },
-      404,
-    );
+  if (!emiten && formattedCode !== "IHSG") {
+    return null;
   }
 
-  const newsItems = await fetchEmitenNews(code, emiten?.name, limit, lang);
+  const companyName = emiten?.name ?? "IHSG";
+  const newsItems = await fetchEmitenNews(
+    formattedCode,
+    emiten?.name,
+    limit,
+    lang,
+  );
 
-  return c.json({
-    success: true,
-    code,
-    company_name: emiten?.name ?? "IHSG",
+  return {
+    company_name: companyName,
     count: newsItems.length,
     data: newsItems,
-  });
-});
+  };
+}

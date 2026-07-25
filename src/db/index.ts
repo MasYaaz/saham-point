@@ -1,159 +1,209 @@
 // src/db/index.ts
 import { Database } from "bun:sqlite";
-import { mkdirSync, existsSync } from "fs";
+import { mkdirSync, existsSync, readFileSync } from "fs";
+import fs from "node:fs";
 import path from "path";
 import type { CountResult, RawStockData } from "../types";
 
-if (!existsSync("data")) {
-  mkdirSync("data");
+/**
+ * Mendapatkan folder 'data' persis di samping file script/binary yang dieksekusi
+ */
+function resolveDataDir(): string {
+  const entryPath = process.argv[1] || process.execPath;
+
+  let baseDir = process.cwd();
+  try {
+    const realPath = fs.realpathSync(entryPath);
+    baseDir = path.dirname(realPath);
+
+    if (path.basename(baseDir) === "src") {
+      baseDir = path.resolve(baseDir, "..");
+    }
+  } catch {
+    baseDir = process.cwd();
+  }
+
+  return path.join(baseDir, "data");
 }
 
-const db = new Database("data/saham.db");
+const dataDir = resolveDataDir();
 
-// 2. Pastikan tabel terbuat (Skema Emiten)
-db.run(`
-  CREATE TABLE IF NOT EXISTS emiten (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL DEFAULT '',
-    sector TEXT NOT NULL DEFAULT 'Unknown',
-    description TEXT NOT NULL DEFAULT '',
-    notation TEXT NOT NULL DEFAULT '',
-    last_price NUMERIC NOT NULL DEFAULT 0.00,
-    previous_close NUMERIC NOT NULL DEFAULT 0.00,
-    day_high NUMERIC NOT NULL DEFAULT 0.00,
-    day_low NUMERIC NOT NULL DEFAULT 0.00,
-    market_cap NUMERIC NOT NULL DEFAULT 0.00,
-    pbv NUMERIC NOT NULL DEFAULT 0.00,
-    per NUMERIC NOT NULL DEFAULT 0.00,
-    roe NUMERIC NOT NULL DEFAULT 0.00,
-    der NUMERIC NOT NULL DEFAULT 0.00,
-    dividend NUMERIC NOT NULL DEFAULT 0.00,
-    dividend_yield NUMERIC NOT NULL DEFAULT 0.00,
-    beta NUMERIC NOT NULL DEFAULT 1.00,
-    price_updated_at TEXT NOT NULL DEFAULT '',
-    is_profile_complete INTEGER NOT NULL DEFAULT 0,
-    is_fundamental_complete INTEGER NOT NULL DEFAULT 0,
-    fundamental_updated_at TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT ''
-  );
-  CREATE INDEX IF NOT EXISTS idx_emiten_sector ON emiten(sector);
-  CREATE INDEX IF NOT EXISTS idx_emiten_profile_complete ON emiten(is_profile_complete);
-  CREATE INDEX IF NOT EXISTS idx_emiten_fundamental_complete ON emiten(is_fundamental_complete);
-`);
+// State internal untuk Lazy Initialization
+let _dbInstance: Database | null = null;
+let _isInitialized = false;
 
-async function initializeAllStocks(database: Database): Promise<void> {
-  // Cek apakah tabel emiten masih kosong dengan type casting yang jelas
+/**
+ * Menyiapkan skema database dan melakukan seeding data awal dari JSON secara terisolasi
+ */
+function setupSchemaAndSeed(database: Database): void {
+  database.run("PRAGMA journal_mode = WAL;");
+  database.run("PRAGMA busy_timeout = 5000;");
+
+  // 1. Skema Emiten
+  database.run(`
+    CREATE TABLE IF NOT EXISTS emiten (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      sector TEXT NOT NULL DEFAULT 'Unknown',
+      description TEXT NOT NULL DEFAULT '',
+      notation TEXT NOT NULL DEFAULT '',
+      last_price NUMERIC NOT NULL DEFAULT 0.00,
+      previous_close NUMERIC NOT NULL DEFAULT 0.00,
+      day_high NUMERIC NOT NULL DEFAULT 0.00,
+      day_low NUMERIC NOT NULL DEFAULT 0.00,
+      market_cap NUMERIC NOT NULL DEFAULT 0.00,
+      pbv NUMERIC NOT NULL DEFAULT 0.00,
+      per NUMERIC NOT NULL DEFAULT 0.00,
+      roe NUMERIC NOT NULL DEFAULT 0.00,
+      der NUMERIC NOT NULL DEFAULT 0.00,
+      dividend NUMERIC NOT NULL DEFAULT 0.00,
+      dividend_yield NUMERIC NOT NULL DEFAULT 0.00,
+      beta NUMERIC NOT NULL DEFAULT 1.00,
+      price_updated_at TEXT NOT NULL DEFAULT '',
+      is_profile_complete INTEGER NOT NULL DEFAULT 0,
+      is_fundamental_complete INTEGER NOT NULL DEFAULT 0,
+      fundamental_updated_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_emiten_sector ON emiten(sector);
+    CREATE INDEX IF NOT EXISTS idx_emiten_profile_complete ON emiten(is_profile_complete);
+    CREATE INDEX IF NOT EXISTS idx_emiten_fundamental_complete ON emiten(is_fundamental_complete);
+  `);
+
+  // 2. Seeding Data Emiten Jika Kosong
   const countResult = database
     .query("SELECT COUNT(*) as total FROM emiten")
     .get() as CountResult | undefined;
 
-  if (countResult && countResult.total > 0) {
-    return; // Sudah ada data, lewati inisialisasi
-  }
-
-  console.log("[DB] Tabel emiten kosong. Memulai inisialisasi dari JSON...");
-  const jsonPath = path.join(process.cwd(), "data", "all_stocks.json");
-
-  if (!existsSync(jsonPath)) {
+  if (!countResult || countResult.total === 0) {
     console.error(
-      `[DB] Gagal inisialisasi: File tidak ditemukan di ${jsonPath}`,
+      "[DB] Tabel emiten kosong. Memulai inisialisasi dari JSON...",
     );
-    return;
-  }
+    const jsonPath = path.join(dataDir, "all_stocks.json");
 
-  try {
-    const fileContent = Bun.file(jsonPath);
-    const allStocks = JSON.parse(await fileContent.text()) as RawStockData[];
+    if (existsSync(jsonPath)) {
+      try {
+        const rawText = readFileSync(jsonPath, "utf-8");
+        const allStocks = JSON.parse(rawText) as RawStockData[];
 
-    if (Array.isArray(allStocks)) {
-      const now = new Date().toISOString();
-      const defaultPastDate = "2000-01-01 00:00:00";
+        if (Array.isArray(allStocks)) {
+          const now = new Date().toISOString();
+          const defaultPastDate = "2000-01-01 00:00:00";
 
-      // Siapkan statement SQL untuk INSERT
-      const insertStmt = database.prepare(`
-        INSERT OR IGNORE INTO emiten (code, name, sector, notation, last_price, price_updated_at, fundamental_updated_at, created_at, updated_at)
-        VALUES ($code, $name, $sector, $notation, 0, $past, $past, $now, $now)
-      `);
+          const insertStmt = database.prepare(`
+            INSERT OR IGNORE INTO emiten (code, name, sector, notation, last_price, price_updated_at, fundamental_updated_at, created_at, updated_at)
+            VALUES ($code, $name, $sector, $notation, 0, $past, $past, $now, $now)
+          `);
 
-      // Menggunakan database.transaction() dengan type definition untuk parameter stocks
-      const insertTransaction = database.transaction(
-        (stocks: RawStockData[]) => {
-          for (const s of stocks) {
-            insertStmt.run({
-              $code: s.code,
-              $name: s.name,
-              $sector: s.sector || "Unknown",
-              $notation: s.notation || null,
-              $past: defaultPastDate,
-              $now: now,
-            });
-          }
-        },
-      );
+          const insertTransaction = database.transaction(
+            (stocks: RawStockData[]) => {
+              for (const s of stocks) {
+                insertStmt.run({
+                  $code: s.code,
+                  $name: s.name,
+                  $sector: s.sector || "Unknown",
+                  $notation: s.notation || null,
+                  $past: defaultPastDate,
+                  $now: now,
+                });
+              }
+            },
+          );
 
-      // Jalankan transaksi
-      insertTransaction(allStocks);
-      console.log(
-        `[DB] Berhasil menginisialisasi ${allStocks.length} daftar emiten.`,
+          insertTransaction(allStocks);
+          console.error(
+            `[DB] Berhasil menginisialisasi ${allStocks.length} daftar emiten dari ${jsonPath}.`,
+          );
+        }
+      } catch (error) {
+        console.error(
+          "[DB] Terjadi kesalahan saat inisialisasi database:",
+          error,
+        );
+      }
+    } else {
+      console.error(
+        `[DB] Gagal inisialisasi: File tidak ditemukan di ${jsonPath}`,
       );
     }
-  } catch (error) {
-    console.error("[DB] Terjadi kesalahan saat inisialisasi database:", error);
   }
+
+  // 3. Skema Stock Histories
+  database.run(`
+    CREATE TABLE IF NOT EXISTS stock_histories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      emiten_id INTEGER NOT NULL,
+      period TEXT CHECK(period IN ('Q1', 'Q2', 'Q3', 'Q4', 'FY')) DEFAULT 'FY',
+      year INTEGER NOT NULL,
+
+      -- Income Statement
+      revenue TEXT,
+      gross_profit NUMERIC DEFAULT 0.00,
+      operating_income NUMERIC DEFAULT 0.00,
+      ebit NUMERIC DEFAULT 0.00,
+      net_profit TEXT,
+      eps NUMERIC DEFAULT 0.00,
+      average_basic_shares_outstanding NUMERIC DEFAULT 0.00,
+      ebitda NUMERIC DEFAULT 0.00,
+
+      -- Balance Sheet
+      total_assets NUMERIC DEFAULT 0.00,
+      total_liabilities NUMERIC DEFAULT 0.00,
+      total_equity NUMERIC DEFAULT 0.00,
+      total_debt NUMERIC DEFAULT 0.00,
+      net_debt NUMERIC DEFAULT 0.00,
+
+      -- Cash Flow
+      cash_flow_operating NUMERIC DEFAULT 0.00,
+      cash_flow_investing NUMERIC DEFAULT 0.00,
+      cash_flow_financing NUMERIC DEFAULT 0.00,
+      free_cash_flow NUMERIC DEFAULT 0.00,
+
+      -- Ratios & Valuation
+      roe NUMERIC DEFAULT 0.00,
+      der NUMERIC DEFAULT 0.00,
+      pbv NUMERIC DEFAULT 0.00,
+      per NUMERIC DEFAULT 0.00,
+
+      created_at TEXT,
+      updated_at TEXT,
+      FOREIGN KEY(emiten_id) REFERENCES emiten(id) ON DELETE CASCADE,
+      UNIQUE(emiten_id, period, year)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_histories_emiten_year ON stock_histories(emiten_id, year);
+  `);
 }
 
-// 3. Manfaatkan Top-Level Await bawaan Bun agar seeding selesai sebelum tabel history dibuat
-await initializeAllStocks(db);
+/**
+ * Mengambil atau membuat koneksi instance SQLite secara Lazy
+ */
+export function getDb(): Database {
+  if (!_dbInstance) {
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true });
+    }
+    const dbPath = path.join(dataDir, "saham.db");
+    _dbInstance = new Database(dbPath);
+  }
 
-// Skema untuk stock_histories
-db.run(`
-  CREATE TABLE IF NOT EXISTS stock_histories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    emiten_id INTEGER NOT NULL,
-    period TEXT CHECK(period IN ('Q1', 'Q2', 'Q3', 'Q4', 'FY')) DEFAULT 'FY',
-    year INTEGER NOT NULL,
-    
-    -- Income Statement (Tabel Laba Rugi)
-    revenue TEXT,
-    gross_profit NUMERIC DEFAULT 0.00,
-    operating_income NUMERIC DEFAULT 0.00,
-    ebit NUMERIC DEFAULT 0.00,
-    net_profit TEXT,
-    eps NUMERIC DEFAULT 0.00,
-    average_basic_shares_outstanding NUMERIC DEFAULT 0.00,
-    ebitda NUMERIC DEFAULT 0.00,
+  if (!_isInitialized) {
+    _isInitialized = true; // Tandai diawal untuk mencegah rekursi jika ada query internal
+    setupSchemaAndSeed(_dbInstance);
+  }
 
-    -- Balance Sheet (Tabel Neraca)
-    total_assets NUMERIC DEFAULT 0.00,
-    total_liabilities NUMERIC DEFAULT 0.00,
-    total_equity NUMERIC DEFAULT 0.00,
-    total_debt NUMERIC DEFAULT 0.00,
-    net_debt NUMERIC DEFAULT 0.00,
+  return _dbInstance;
+}
 
-    -- Cash Flow (Tabel Arus Kas)
-    cash_flow_operating NUMERIC DEFAULT 0.00,
-    cash_flow_investing NUMERIC DEFAULT 0.00,
-    cash_flow_financing NUMERIC DEFAULT 0.00,
-    free_cash_flow NUMERIC DEFAULT 0.00,
-
-    -- Ratios & Valuation (Tab Statistics)
-    roe NUMERIC DEFAULT 0.00,
-    der NUMERIC DEFAULT 0.00,
-    pbv NUMERIC DEFAULT 0.00,
-    per NUMERIC DEFAULT 0.00,
-
-    created_at TEXT,
-    updated_at TEXT,
-    FOREIGN KEY(emiten_id) REFERENCES emiten(id) ON DELETE CASCADE,
-    UNIQUE(emiten_id, period, year)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_histories_emiten_year ON stock_histories(emiten_id, year);
-`);
-
-db.run("PRAGMA journal_mode = WAL;");
-db.run("PRAGMA busy_timeout = 5000;");
+// Proxy transparan: Menjaga sintaks `import db from "../db"` tetap bekerja 100% tanpa mengubah kode lain
+export const db = new Proxy({} as Database, {
+  get(_target, prop, receiver) {
+    const instance = getDb();
+    const value = Reflect.get(instance, prop, receiver);
+    return typeof value === "function" ? value.bind(instance) : value;
+  },
+});
 
 export default db;

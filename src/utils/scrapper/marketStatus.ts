@@ -1,4 +1,4 @@
-import { BG_GREEN, BG_RED, BOLD, RESET } from "../cli/component/TUITheme";
+import { BG_GREEN, BG_RED, BOLD, RESET } from "../../cli/component/TUITheme";
 
 export function getMarketStatus() {
   // Gunakan zona waktu Indonesia (WIB)

@@ -1,17 +1,19 @@
-import { Hono } from "hono";
 import db from "../db";
 import type { EmitenDbRow } from "../types";
-import { parseLimit } from "../utils/endpoint/parseLimit";
 
-export const screenerRouter = new Hono();
+export interface ScreenerUndervaluedParams {
+  maxPbv?: number;
+  minRoe?: number;
+  maxDer?: number;
+  limit?: number;
+}
 
-// GET /api/screener/undervalued
-screenerRouter.get("/undervalued", (c) => {
-  const maxPbv = parseFloat(c.req.query("max_pbv") ?? "1.5");
-  const minRoe = parseFloat(c.req.query("min_roe") ?? "10.0");
-  const maxDer = parseFloat(c.req.query("max_der") ?? "2.0");
-  const limit = parseLimit(c.req.query("limit"), 50);
-
+export function getUndervaluedStocks({
+  maxPbv = 1.5,
+  minRoe = 10.0,
+  maxDer = 2.0,
+  limit = 50,
+}: ScreenerUndervaluedParams = {}) {
   const result = db
     .query(
       `SELECT code, name, sector, last_price, market_cap, pbv, per, roe, der, dividend_yield
@@ -24,8 +26,7 @@ screenerRouter.get("/undervalued", (c) => {
     )
     .all(maxPbv, minRoe, maxDer, limit) as EmitenDbRow[];
 
-  return c.json({
-    success: true,
+  return {
     filter_applied: {
       max_pbv: maxPbv,
       min_roe: minRoe,
@@ -34,52 +35,63 @@ screenerRouter.get("/undervalued", (c) => {
     },
     count: result.length,
     data: result,
-  });
-});
+  };
+}
 
-// GET /api/screener/market-cap
-screenerRouter.get("/market-cap", (c) => {
-  const minCap = parseFloat(c.req.query("min_market_cap") ?? "0");
-  const maxCapParam = c.req.query("max_market_cap");
-  const maxCap = maxCapParam ? parseFloat(maxCapParam) : null;
-  const sort =
-    (c.req.query("sort") ?? "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
-  const limit = parseLimit(c.req.query("limit"), 25);
+export interface ScreenerMarketCapParams {
+  minMarketCap?: number;
+  maxMarketCap?: number | null;
+  sort?: "asc" | "desc" | string;
+  limit?: number;
+}
+
+export function getMarketCapStocks({
+  minMarketCap = 0,
+  maxMarketCap = null,
+  sort = "desc",
+  limit = 25,
+}: ScreenerMarketCapParams = {}) {
+  const sortDirection = sort.toLowerCase() === "asc" ? "ASC" : "DESC";
+  const validMinCap = isNaN(minMarketCap) ? 0 : minMarketCap;
 
   let queryStr = `
     SELECT code, name, sector, last_price, market_cap, pbv, per, roe, der, dividend_yield
     FROM emiten
     WHERE market_cap IS NOT NULL AND market_cap >= ?
   `;
-  const params: any[] = [isNaN(minCap) ? 0 : minCap];
+  const params: any[] = [validMinCap];
 
-  if (maxCap !== null && !isNaN(maxCap)) {
+  if (maxMarketCap !== null && !isNaN(maxMarketCap)) {
     queryStr += ` AND market_cap <= ?`;
-    params.push(maxCap);
+    params.push(maxMarketCap);
   }
 
-  queryStr += ` ORDER BY market_cap ${sort} LIMIT ?`;
+  queryStr += ` ORDER BY market_cap ${sortDirection} LIMIT ?`;
   params.push(limit);
 
   const result = db.query(queryStr).all(...params) as EmitenDbRow[];
 
-  return c.json({
-    success: true,
+  return {
     filter_applied: {
-      min_market_cap: isNaN(minCap) ? 0 : minCap,
-      max_market_cap: maxCap,
-      sort: sort.toLowerCase(),
+      min_market_cap: validMinCap,
+      max_market_cap: maxMarketCap,
+      sort: sortDirection.toLowerCase(),
       limit,
     },
     count: result.length,
     data: result,
-  });
-});
+  };
+}
 
-// GET /api/screener/technical
-screenerRouter.get("/technical", (c) => {
-  const strategy = c.req.query("strategy") ?? "breakout";
-  const limit = parseLimit(c.req.query("limit"), 30);
+export interface ScreenerTechnicalParams {
+  strategy?: "breakout" | "reversal" | "volatile" | string;
+  limit?: number;
+}
+
+export function getTechnicalScreener({
+  strategy = "breakout",
+  limit = 30,
+}: ScreenerTechnicalParams = {}) {
   let queryStr = "";
 
   if (strategy === "reversal") {
@@ -117,20 +129,23 @@ screenerRouter.get("/technical", (c) => {
     };
   });
 
-  return c.json({
-    success: true,
+  return {
     strategy_applied: strategy,
     limit_applied: limit,
     count: formattedResult.length,
     data: formattedResult,
-  });
-});
+  };
+}
 
-// GET /api/screener/dividend-hunters
-screenerRouter.get("/dividend-hunters", (c) => {
-  const minYield = parseFloat(c.req.query("min_yield") ?? "5.0");
-  const limit = parseLimit(c.req.query("limit"), 30);
+export interface ScreenerDividendParams {
+  minYield?: number;
+  limit?: number;
+}
 
+export function getDividendHunters({
+  minYield = 5.0,
+  limit = 30,
+}: ScreenerDividendParams = {}) {
   const result = db
     .query(
       `SELECT code, name, sector, last_price, market_cap, pbv, per, der, dividend_yield
@@ -140,18 +155,14 @@ screenerRouter.get("/dividend-hunters", (c) => {
     )
     .all(minYield, limit) as EmitenDbRow[];
 
-  return c.json({
-    success: true,
+  return {
     filter_applied: { min_dividend_yield: minYield, limit },
     count: result.length,
     data: result,
-  });
-});
+  };
+}
 
-// GET /api/screener/cash-rich
-screenerRouter.get("/cash-rich", (c) => {
-  const limit = parseLimit(c.req.query("limit"), 25);
-
+export function getCashRichStocks(limit: number = 25) {
   const result = db
     .query(
       `SELECT e.code, e.name, e.sector, e.last_price, h.free_cash_flow, h.total_debt, h.net_debt, h.year
@@ -162,19 +173,15 @@ screenerRouter.get("/cash-rich", (c) => {
     )
     .all(limit) as any[];
 
-  return c.json({
-    success: true,
+  return {
     description:
       "Emiten dengan Free Cash Flow positif dan kondisi Kas bersih melampaui Total Utang (Net Debt Negatif)",
     count: result.length,
     data: result,
-  });
-});
+  };
+}
 
-// GET /api/screener/growth
-screenerRouter.get("/growth", (c) => {
-  const limit = parseLimit(c.req.query("limit"), 25);
-
+export function getGrowthStocks(limit: number = 25) {
   const result = db
     .query(
       `SELECT e.code, e.name, h1.net_profit as latest_net_profit, h2.net_profit as prev_net_profit, h1.year as latest_year
@@ -187,20 +194,18 @@ screenerRouter.get("/growth", (c) => {
     )
     .all(limit);
 
-  return c.json({
-    success: true,
+  return {
     description:
       "Menyaring emiten dengan pertumbuhan laba bersih positif pada tahun laporan keuangan terbaru",
     count: result.length,
     data: result,
-  });
-});
+  };
+}
 
-// GET /api/screener/rankings
-screenerRouter.get("/rankings", (c) => {
-  const sortBy = c.req.query("sort") ?? "market_cap";
-  const limit = parseLimit(c.req.query("limit"), 25);
-
+export function getRankedStocks(
+  sortBy: string = "market_cap",
+  limit: number = 25,
+) {
   let queryStr = `SELECT code, name, sector, last_price, market_cap, pbv, per, dividend_yield FROM emiten `;
   queryStr +=
     sortBy === "dividend_yield"
@@ -209,10 +214,9 @@ screenerRouter.get("/rankings", (c) => {
 
   const result = db.query(queryStr).all(limit) as EmitenDbRow[];
 
-  return c.json({
-    success: true,
+  return {
     metric: sortBy,
     count: result.length,
     data: result,
-  });
-});
+  };
+}

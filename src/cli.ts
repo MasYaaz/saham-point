@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { handleCommand } from "./cli/command";
 import { readlineHead } from "./cli/component/readlineInterface";
 import {

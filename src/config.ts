@@ -1,7 +1,6 @@
 /**
  * Environment & Network Port Configuration
  */
-export const PORT = process.env.PORT || 3000;
 
 export const YAHOO_HEADERS = {
   "User-Agent":
@@ -24,5 +23,3 @@ export const TRADINGVIEW_HEADERS = {
 };
 
 export const VERSION = "1.0.0";
-
-export const URL = "http://saham-point.end";

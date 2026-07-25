@@ -6,7 +6,7 @@ const baseCommands = [
   "sync",
   "detail",
   "show emiten",
-  "show endpoints",
+  "show mcptools",
   "clear",
   "exit",
 ];

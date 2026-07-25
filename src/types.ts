@@ -126,20 +126,6 @@ export interface EmitenDbRow {
   fundamental_updated_at: string | null;
 }
 
-export const AVAILABLE_SECTORS = [
-  "Healthcare",
-  "Basic Materials",
-  "Financials",
-  "Transportation & Logistic",
-  "Technology",
-  "Consumer Non-Cyclicals",
-  "Industrials",
-  "Energy",
-  "Consumer Cyclicals",
-  "Infrastructures",
-  "Properties & Real Estate",
-] as const;
-
 // Interface data Candlestick murni
 export interface CandleHistory {
   date: string;

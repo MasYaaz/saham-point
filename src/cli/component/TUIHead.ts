@@ -1,4 +1,4 @@
-import { URL, VERSION } from "../../config";
+import { VERSION } from "../../config";
 import {
   BG_GREEN,
   BG_RED,
@@ -42,7 +42,7 @@ export function TUIHead() {
   // ==========================================================================
   // 2. HITUNG & TENGANHIN SUB-TEXT DI BAWAHNYA (Lebar: 29 Karakter)
   // ==========================================================================
-  const subText = "Scraper Data IHSG & Endpoint API Untuk Agentic AI";
+  const subText = "Scraper Data IHSG & MCP Server Untuk Agentic AI";
   const subTextPaddingSize = Math.max(
     0,
     Math.floor((BOX_WIDTH - subText.length) / 2),
@@ -90,7 +90,7 @@ export function TUIHead() {
   console.log(
     TUI.row(
       ` ➜ Market Status : ${market.label}${RESET}`,
-      ` show endpoints ➜ Lihat Semua Endpoints Terdaftar sistem`,
+      ` show mcptools ➜ Lihat Semua MCP Tools yang tersedia`,
       55,
       63,
     ),
@@ -117,20 +117,6 @@ export function TUIHead() {
   console.log(TUI.emptyRow(54, 63));
 
   // 3. Footer/Links
-  console.log(TUI.divider("middle"));
-  console.log(
-    TUI.fullRow(` ${BOLD}Live Network Endpoint Links${RESET}`, BOX_WIDTH),
-  );
-  console.log(
-    TUI.fullRow(` ➜ Local API Gateway URL : ${CYAN}${URL}${RESET}`, BOX_WIDTH),
-  );
-  console.log(
-    TUI.fullRow(
-      ` ➜ Core Health Check     : ${CYAN}${URL}/api/health${RESET}`,
-      BOX_WIDTH,
-    ),
-  );
-
   console.log(TUI.divider("bottom"));
   console.log(TUI.spacer());
 }

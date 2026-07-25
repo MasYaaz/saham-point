@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
-import type { TradingViewFinancialHistory } from "../../types";
-import { safeLog } from "../../cli/helper/safeLog";
-import { checkIfBlockedByCaptcha } from "../../utils/scrapper/browser";
+import type { TradingViewFinancialHistory } from "../../../types";
+import { safeLog } from "../../../cli/helper/safeLog";
+import { checkIfBlockedByCaptcha } from "../../../utils/scrapper/browser";
 
 type FinancialPeriodKey = number | "current" | "ttm";
 

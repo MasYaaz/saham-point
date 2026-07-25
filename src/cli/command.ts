@@ -2,9 +2,14 @@ import { CYAN, RESET } from "./component/TUITheme";
 import { handleSync } from "./handler/handleSync";
 import { handleShowEmiten } from "./handler/handleShowEmiten";
 import { handleDetailEmiten } from "./handler/handleDetailEmiten";
-import { handleShowEndpoints } from "./handler/handleShowEndpoints";
 import { readlineHead } from "./component/readlineInterface";
 import { tuiLogState } from "./helper/safeLog";
+import { handleShowMcpTools } from "./handler/handleShowMCPTools";
+import {
+  handleCleanLogs,
+  handleListLogs,
+  handleShowLogs,
+} from "./handler/handleLogs";
 
 export async function handleCommand(
   line: string,
@@ -47,9 +52,37 @@ export async function handleCommand(
       await handleDetailEmiten(arg);
       break;
 
-    case "show endpoints":
-      handleShowEndpoints();
+    case "show mcptools":
+      handleShowMcpTools();
       break;
+
+    case "logs": {
+      const arg1 = (parts[1] || "").toLowerCase();
+      const arg2 = parts[2] || "";
+
+      if (arg1 === "list" || arg1 === "ls") {
+        handleListLogs();
+      } else if (arg1 === "clean" || arg1 === "clear") {
+        handleCleanLogs(arg2 || "7");
+      } else if (arg1 === "all") {
+        // Contoh: 'logs all' atau 'logs all 50'
+        const lines =
+          !isNaN(Number(arg2)) && Number(arg2) > 0 ? Number(arg2) : 20;
+        handleShowLogs("all", lines);
+      } else if (!isNaN(Number(arg1)) && Number(arg1) > 0) {
+        // Contoh: 'logs 50' (50 baris log hari ini)
+        handleShowLogs("today", Number(arg1));
+      } else if (arg1) {
+        // Contoh: 'logs 2026-07-24' atau 'logs 2026-07-24 50'
+        const lines =
+          !isNaN(Number(arg2)) && Number(arg2) > 0 ? Number(arg2) : 20;
+        handleShowLogs(arg1, lines);
+      } else {
+        // Contoh: 'logs' (default 20 baris log hari ini)
+        handleShowLogs("today", 20);
+      }
+      break;
+    }
 
     case "clear":
       tuiLogState.activeLogs = [];
@@ -63,7 +96,7 @@ export async function handleCommand(
 
     default:
       console.log(
-        `❌ Perintah tidak dikenal: '${line.trim()}'. Ketik 'sync', 'show endpoints', 'show emiten', 'detail <KODE>', 'clear', atau 'exit'.\n`,
+        `❌ Perintah tidak dikenal: '${line.trim()}'. Ketik 'sync', 'show mcptools', 'show emiten', 'detail <KODE>', 'clear', atau 'exit'.\n`,
       );
       break;
   }

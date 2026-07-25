@@ -1,4 +1,4 @@
-import { scrapeFundamentalTradingView } from "../src/scrapper/helper/scrapeFundamentalTradingView";
+import { scrapeFundamentalTradingView } from "../src/cli/scrapper/helper/scrapeFundamentalTradingView";
 import {
   createBatchContext,
   getOrInitBrowser,
