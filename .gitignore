@@ -40,4 +40,7 @@ data/saham.db-wal
 data/test
 
 # Binary
-.saham-point
+.saham-point/data/saham.db
+.saham-point/data/saham.db-shm
+.saham-point/data/saham.db-wal
+.saham-point/logs
