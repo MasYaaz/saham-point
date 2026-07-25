@@ -18,7 +18,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}====================================================${NC}"
-echo -e "${BLUE}        🚀 Installing Saham Point Suite           ${NC}"
+echo -e "${BLUE}            🚀 Installing Saham Point               ${NC}"
 echo -e "${BLUE}====================================================${NC}\n"
 
 # 1. Cek Dependency Tools Download (curl/wget)
