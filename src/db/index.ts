@@ -6,9 +6,26 @@ import path from "path";
 import type { CountResult, RawStockData } from "../types";
 
 /**
- * Mendapatkan folder 'data' persis di samping file script/binary yang dieksekusi
+ * Mendapatkan lokasi folder 'data' secara dinamis:
+ * 1. Saat development / test: Selalu mengunci ke root project (/data).
+ * 2. Saat diproduksi sebagai compiled binary: Menggunakan direktori persis di samping binary executable.
  */
 function resolveDataDir(): string {
+  // A. Deteksi saat berjalan dari source code (Development, Bun Test, CLI Dev)
+  const currentSourceDir = import.meta.dir;
+
+  // Cek apakah berjalan dari source file (bukan virtual filesystem Bun binary)
+  if (
+    currentSourceDir &&
+    !currentSourceDir.startsWith("$bunfs") &&
+    !currentSourceDir.includes("#bun")
+  ) {
+    // Posisi file ini: <root>/src/db -> naik 2 level ke <root>
+    const projectRoot = path.resolve(currentSourceDir, "../..");
+    return path.join(projectRoot, "data");
+  }
+
+  // B. Fallback saat dijalankan sebagai compiled standalone binary (Release)
   const entryPath = process.argv[1] || process.execPath;
 
   let baseDir = process.cwd();
@@ -16,7 +33,8 @@ function resolveDataDir(): string {
     const realPath = fs.realpathSync(entryPath);
     baseDir = path.dirname(realPath);
 
-    if (path.basename(baseDir) === "src") {
+    // Jika binary/entry berada di dalam subfolder dev (src, test, scripts)
+    if (["src", "test", "scripts"].includes(path.basename(baseDir))) {
       baseDir = path.resolve(baseDir, "..");
     }
   } catch {
@@ -190,7 +208,7 @@ export function getDb(): Database {
   }
 
   if (!_isInitialized) {
-    _isInitialized = true; // Tandai diawal untuk mencegah rekursi jika ada query internal
+    _isInitialized = true; // Tandai di awal untuk mencegah rekursi jika ada query internal
     setupSchemaAndSeed(_dbInstance);
   }
 

@@ -33,7 +33,7 @@ mock.module("../src/db/index.ts", () => ({
 // ==========================================================================
 const {
   updateFundamental,
-} = require("../src/scrapper/helper/updateFundamental");
+} = require("../src/cli/scrapper/helper/updateFundamental");
 
 describe("updateFundamental Unit Test", () => {
   const mockContext = {}; // Sekarang 100% aman dikosongkan karena fungsi asli dilewati
