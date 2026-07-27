@@ -5,31 +5,19 @@ import {
   createBatchContext,
   getOrInitBrowser,
 } from "../../utils/scrapper/browser";
-import { fetchPriceYahoo } from "./helper/fetchPriceYahoo";
+import { fetchPriceTradingView } from "./helper/fetchPriceTradingView";
 import { updateFundamental } from "./helper/updateFundamental";
 
 /**
- * FIX (stuck setelah ~menit ke-10, ketahuan di putaran/batch kedua):
- * `page.close()` di loop cleanup dan `browser.close()` di blok `finally`
- * sebelumnya TIDAK dibungkus timeout sama sekali — beda dengan seluruh
- * operasi Playwright lain di codebase ini (page.goto 12s, waitForSelector
- * 8s, EMITEN_TIMEOUT 40s). `.catch(() => {})` hanya menangkap promise yang
- * REJECT, bukan promise yang hang (tidak pernah resolve/reject).
+ * Wrapper Promise dengan batas waktu (timeout guard).
  *
- * Kalau browser process jadi tidak responsif (mis. karena masih ada
- * koneksi/page menggantung dari item sebelumnya — termasuk "zombie"
- * internalWorker yang selamat dari EMITEN_TIMEOUT tapi masih berjalan di
- * background, lihat catatan di updateFundamental.ts), maka `browser.close()`
- * di akhir batch bisa menunggu SELAMANYA. Karena syncDataAll() dipanggil
- * dengan `await` di dalam while-loop runSyncDataAll(), seluruh proses sync
- * ikut freeze permanen persis di titik ini — gejalanya terlihat seperti
- * "macet di putaran kedua" padahal sumbernya di ekor putaran pertama.
+ * Mencegah alur sinkronisasi macet permanen (freeze) ketika operasi Playwright
+ * (seperti `page.close()`) menggantung tanpa memberikan respon (resolve/reject)
+ * saat Chromium menjadi tidak responsif.
  *
- * withTimeout membungkus promise apa pun dengan batas waktu: kalau lewat,
- * di-log dan dianggap selesai (gagal dengan aman) alih-alih menggantungkan
- * seluruh proses. Ini fail-safe, bukan fix akar masalah kenapa browser bisa
- * jadi tidak responsif — untuk itu perlu diagnosis lebih lanjut di
- * utils/browser.ts (lihat catatan di bawah fungsi ini).
+ * @param promise - Operasi asinkron yang akan dieksekusi.
+ * @param ms - Batas waktu maksimal dalam milidetik.
+ * @param label - Label identifikasi untuk pencatatan log.
  */
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -59,44 +47,49 @@ async function withTimeout<T>(
 }
 
 /**
- * 2a. FUNGSI KHUSUS HARGA REAL-TIME (Dijalankan berkala saat bursa buka)
- * Mengambil antrian emiten yang harganya paling lama tidak diperbarui
+ * Menyinkronkan harga pasar dan rasio dasar secara real-time.
+ * Memproses antrean emiten dalam 1 kali HTTP batch request ke TradingView Scanner API.
+ *
+ * @param limit - Jumlah maksimal emiten yang diproses (opsional, default: seluruh emiten).
  */
-export async function syncMarketPrices(limit: number = 50): Promise<string> {
-  // Mengambil emiten berdasarkan pembaruan harga terlama
-  const queue = db
-    .query(
-      `
+export async function syncMarketPrices(limit?: number): Promise<string> {
+  // 1. Ambil antrean emiten berdasarkan pembaruan harga terlama
+  const querySql =
+    limit && limit > 0
+      ? `
       SELECT id, code, description, last_price, beta, pbv, per, roe, der, price_updated_at, fundamental_updated_at
       FROM emiten
       ORDER BY price_updated_at ASC
       LIMIT ?
-      `,
-    )
-    .all(limit) as EmitenItem[];
+      `
+      : `
+      SELECT id, code, description, last_price, beta, pbv, per, roe, der, price_updated_at, fundamental_updated_at
+      FROM emiten
+      ORDER BY price_updated_at ASC
+      `;
+
+  const queue = (
+    limit && limit > 0
+      ? db.query(querySql).all(limit)
+      : db.query(querySql).all()
+  ) as EmitenItem[];
 
   if (queue.length === 0) return "Antrian harga kosong.";
 
-  let successCount = 0;
-  let failCount = 0;
+  console.log(`[Price Sync] Memproses ${queue.length} emiten sekaligus...`);
 
-  for (let item of queue) {
-    const priceSuccess = await fetchPriceYahoo(item);
-    if (priceSuccess) successCount++;
-    else failCount++;
+  // 2. Eksekusi batch update via TradingView Scanner
+  const { successCount, failCount } = await fetchPriceTradingView(queue);
 
-    // Jeda tipis antar emiten karena hanya fetch 1 URL API Chart cepat per emiten
-    const delay = Math.floor(Math.random() * (400 - 200 + 1)) + 200; // 200ms - 400ms
-    await new Promise((resolve) => setTimeout(resolve, delay));
-  }
-
-  return `[Price Sync] Selesai | Berhasil: ${successCount} | Gagal: ${failCount}`;
+  return `[Price Sync] Selesai | Total Diproses: ${queue.length} | Berhasil: ${successCount} | Gagal: ${failCount}`;
 }
 
 /**
- * FUNGSI KHUSUS FUNDAMENTAL & HISTORI
- * Mencari emiten yang historinya belum lengkap (< 4 tahun) atau yang data fundamentalnya paling usang
- * Sekaligus menyinkronkan harga pasar real-time agar seluruh kolom emiten terisi penuh.
+ * Menyinkronkan data fundamental mendalam dan histori emiten.
+ * Mengombinasikan pembaruan harga cepat (TradingView Batch) dan deep scraping (Playwright).
+ *
+ * @param limit - Jumlah emiten per batch (default: 50).
+ * @param onProgress - Callback opsional untuk memantau progres real-time.
  */
 export async function syncDataAll(
   limit: number = 50,
@@ -111,6 +104,7 @@ export async function syncDataAll(
     { total: number } | undefined;
   const totalEmiten = countRow?.total ?? 1;
 
+  // 1. Ambil antrean emiten yang data fundamentalnya paling usang/belum lengkap
   const queue = db
     .query(
       `
@@ -132,30 +126,34 @@ export async function syncDataAll(
   if (queue.length === 0)
     return { success: 0, fail: 0, failedLogs: ["Antrian kosong."] };
 
+  // 2. Perbarui harga & rasio dasar seluruh antrean sekaligus (~200ms)
+  await fetchPriceTradingView(queue).catch((err) =>
+    safeLog(
+      "warn",
+      `[TradingView] Gagal memperbarui harga antrean: ${err.message}`,
+    ),
+  );
+
   let successCount = 0;
   let failCount = 0;
   const failedLogs: string[] = [];
 
-  // 1. Ambil instance Browser global (tidak akan relaunch jika sudah ada)
+  // 3. Inisialisasi Browser & BrowserContext
   const browser = await getOrInitBrowser().catch((e) => {
     throw new Error(`CRITICAL_BROWSER_FAILURE: ${e.message}`);
   });
 
-  // 2. Buat BrowserContext baru yang super ringan khusus untuk batch ini
   const context = await createBatchContext(browser).catch((e) => {
     throw new Error(`CRITICAL_CONTEXT_FAILURE: ${e.message}`);
   });
 
   try {
-    // --- SESI 1: Scraping Utama ---
+    // 4. Sesi Deep Scraping via Playwright
     for (const item of queue) {
       const code = item.code.toUpperCase();
       let status: "OK" | "FAIL" | "INCOMPLETE" = "OK";
 
       try {
-        await fetchPriceYahoo(item).catch(() =>
-          safeLog("warn", `[Yahoo] Gagal ${code}`),
-        );
         const fundStatus = await updateFundamental(code, context);
 
         if (fundStatus === "INCOMPLETE") {
@@ -177,11 +175,11 @@ export async function syncDataAll(
         failedLogs.push(`${code}: ${err.message}`);
       }
 
-      // Laporkan progres
+      // Laporkan progres via callback jika tersedia
       if (onProgress)
         onProgress(successCount + failCount, totalEmiten, code, status);
 
-      // BERSIHKAN MEMORI TAB SETIAP EMITEN SELESAI
+      // 5. Pembersihan tab browser per emiten
       const pages = context.pages();
       for (const page of pages) {
         try {
@@ -202,8 +200,7 @@ export async function syncDataAll(
       await new Promise((r) => setTimeout(r, 500));
     }
   } finally {
-    // 3. ⚠️ HANYA TUTUP CONTEXT BATCH INI!
-    // Biner Browser utama tetap dibiarkan hidup di memory untuk batch berikutnya.
+    // 6. Tutup context batch (Instance browser utama tetap dipertahankan di memori)
     await context.close().catch(() => {});
   }
 

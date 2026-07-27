@@ -3,6 +3,10 @@ import type { TradingViewFinancialHistory } from "../../../types";
 import { safeLog } from "../../../cli/helper/safeLog";
 import { checkIfBlockedByCaptcha } from "../../../utils/scrapper/browser";
 
+// ============================================================================
+// TYPE DEFINITIONS & INTERFACES
+// ============================================================================
+
 type FinancialPeriodKey = number | "current" | "ttm";
 
 interface TabConfig {
@@ -11,9 +15,17 @@ interface TabConfig {
   waitSelector: string;
 }
 
+export interface ScrapeResult {
+  data: Record<string | number, TradingViewFinancialHistory>;
+  incompleteTabs: string[];
+}
+
 // ============================================================================
-// 2. CONFIGURATION & METRIC MAPPINGS (Semua menggunakan lowercase untuk kecocokan aman)
+// CONFIGURATION & METRIC MAPPINGS
+// (Catatan: Semua kunci string menggunakan huruf kecil untuk pencocokan aman)
 // ============================================================================
+
+/** Pemetaan metrik rasio & statistik fundamental */
 const STATS_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "return on equity %": "roe",
   "return on equity": "roe",
@@ -24,6 +36,7 @@ const STATS_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "price to earnings": "per",
 };
 
+/** Pemetaan metrik Laporan Laba Rugi (Income Statement) */
 const INCOME_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "total revenue": "revenue",
   "total interest income": "revenue",
@@ -36,6 +49,7 @@ const INCOME_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   ebit: "ebit",
 };
 
+/** Pemetaan metrik Neraca Keuangan (Balance Sheet) */
 const BALANCE_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "total assets": "total_assets",
   "total liabilities": "total_liabilities",
@@ -44,6 +58,7 @@ const BALANCE_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "net debt": "net_debt",
 };
 
+/** Pemetaan metrik Arus Kas (Cash Flow) */
 const CASH_FLOW_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "cash flow from operating activities": "cash_flow_operating",
   "cash flow from investing activities": "cash_flow_investing",
@@ -51,6 +66,7 @@ const CASH_FLOW_MAPPING: Record<string, keyof TradingViewFinancialHistory> = {
   "free cash flow": "free_cash_flow",
 };
 
+/** Konfigurasi 4 tab laporan keuangan TradingView */
 const TABS: TabConfig[] = [
   {
     suffix: "financials-statistics-and-ratios/?statistics-period=FY",
@@ -76,8 +92,16 @@ const TABS: TabConfig[] = [
 ];
 
 // ============================================================================
-// 3. UTILITIES & HELPERS
+// UTILITY & PARSING HELPERS
 // ============================================================================
+
+/**
+ * Mengonversi string nilai mentah TradingView menjadi angka numerik murni.
+ * Mendukung pengenal skala besar (K, M, B, T) dan tanda minus Unicode (`−`).
+ *
+ * @param raw - String nilai mentah (misal: "1.25B", "-500.5M", "—").
+ * @returns Nilai numerik terkonversi atau `null` jika kosong/tidak valid.
+ */
 export function parseTradingViewValue(
   raw: string | undefined | null,
 ): number | null {
@@ -114,6 +138,9 @@ export function parseTradingViewValue(
   return parseFloat((isNegative ? -value : value).toFixed(4));
 }
 
+/**
+ * Normalisasi teks header periode laporan menjadi kunci yang konsisten (Tahun / "current" / "ttm").
+ */
 function normalizePeriodKey(rawYearText: string): FinancialPeriodKey {
   const text = rawYearText.trim().toLowerCase();
   if (text.includes("current")) return "current";
@@ -124,8 +151,12 @@ function normalizePeriodKey(rawYearText: string): FinancialPeriodKey {
 }
 
 // ============================================================================
-// 4. PARSER CORE ENGINE (CHEERIO)
+// CHEERIO HTML PARSER ENGINE
 // ============================================================================
+
+/**
+ * Ekstrak daftar periode waktu (kolom header) dari DOM laporan keuangan.
+ */
 function parsePeriodHeaders($: cheerio.CheerioAPI): FinancialPeriodKey[] {
   const periods: FinancialPeriodKey[] = [];
   const $header = $(".values-t0cbVcS5")
@@ -141,18 +172,24 @@ function parsePeriodHeaders($: cheerio.CheerioAPI): FinancialPeriodKey[] {
   return periods;
 }
 
+/**
+ * Ekstrak judul metrik dari baris tabel TradingView.
+ * Mengutamakan atribut `data-name` agar tahan terhadap perubahan CSS class.
+ */
 function parseRowTitle($row: cheerio.Cheerio<any>): string {
-  // Strategi Utama: Ambil langsung dari atribut data-name (jauh lebih aman dari perubahan class HTML)
+  // Strategi Utama: Ambil langsung dari atribut data-name
   const dataName = $row.attr("data-name")?.trim();
   if (dataName) return dataName;
 
-  // Fallback alternatif jika atribut data-name kosong
+  // Fallback 1: Text dari class highlightText
   const fromHighlight = $row
     .find(".titleColumn-v0BbAiJS .highlightText-v0BbAiJS")
     .first()
     .text()
     .trim();
   if (fromHighlight) return fromHighlight;
+
+  // Fallback 2: Text dari class titleText
   return $row
     .find(".titleColumn-v0BbAiJS .titleText-v0BbAiJS")
     .first()
@@ -160,6 +197,9 @@ function parseRowTitle($row: cheerio.Cheerio<any>): string {
     .trim();
 }
 
+/**
+ * Membedah isi tabel HTML dan memasukkan data metrik ke dalam objek `masterHistory`.
+ */
 function extractTableData(
   html: string,
   metricMapping: Record<string, keyof TradingViewFinancialHistory>,
@@ -178,7 +218,6 @@ function extractTableData(
     const $row = $(rowEl);
     const title = parseRowTitle($row);
 
-    // Normalisasi title menjadi lowercase dan hilangkan space berlebih sebelum dicocokkan
     const normalizedTitle = title.toLowerCase().trim().replace(/\s+/g, " ");
     const targetKey = metricMapping[normalizedTitle];
     if (!targetKey) return;
@@ -202,20 +241,14 @@ function extractTableData(
   });
 }
 
-export interface ScrapeResult {
-  data: Record<string | number, TradingViewFinancialHistory>;
-  incompleteTabs: string[];
-}
-
 /**
- * Helper untuk mengecek apakah setidaknya satu metrik di tab ini terisi
+ * Memeriksa apakah setidaknya satu metrik pada tab tertentu berhasil terekstrak ke dalam `masterHistory`.
  */
 function hasDataInTab(
   master: Record<string | number, TradingViewFinancialHistory>,
   mapping: Record<string, keyof TradingViewFinancialHistory>,
 ): boolean {
   const metricsInTab = Object.values(mapping);
-  // Cek apakah ada record di masterHistory yang memiliki setidaknya satu nilai dari mapping tab ini
   return Object.values(master).some((periodData) =>
     metricsInTab.some(
       (metric) =>
@@ -225,8 +258,18 @@ function hasDataInTab(
 }
 
 // ============================================================================
-// 5. MAIN ORCHESTRATOR
+// MAIN ORCHESTRATOR
 // ============================================================================
+
+/**
+ * Orchestrator Utama: Membuka 4 tab laporan keuangan TradingView secara paralel,
+ * memeriksa proteksi Captcha, mengekstraksi data fundamental historis, dan
+ * mengembalikan hasil terstruktur.
+ *
+ * @param code - Kode emiten saham (misal: "BBCA", "IHSG").
+ * @param context - Instance `BrowserContext` Playwright aktif.
+ * @returns Objek `ScrapeResult` jika berhasil, atau `false` jika seluruh tab gagal.
+ */
 export async function scrapeFundamentalTradingView(
   code: string,
   context: any,
@@ -239,7 +282,7 @@ export async function scrapeFundamentalTradingView(
   const masterHistory: Record<string | number, TradingViewFinancialHistory> =
     {};
 
-  // Pelacakan status per tab lebih detail
+  // Pelacakan status hasil eksekusi per tab
   const tabStatus: { tab: string; state: "success" | "error" | "empty" }[] =
     TABS.map((t) => ({
       tab: t.suffix,
@@ -247,17 +290,19 @@ export async function scrapeFundamentalTradingView(
     }));
 
   try {
+    // Membuka dan mengeksekusi 4 tab laporan keuangan secara terpisah namun paralel
     await Promise.allSettled(
       TABS.map(async (tab, index) => {
         const page = await context.newPage();
         try {
+          // Beri jeda kecil antar tab agar tidak memicu deteksi bot agresif
           await new Promise((r) => setTimeout(r, index * 500));
           const response = await page.goto(`${baseUrl}/${tab.suffix}`, {
             waitUntil: "domcontentloaded",
             timeout: 15000,
           });
 
-          // 🛡️ 1. DETEKSI CAPTCHA / CLOUDFLARE DI SINI (Sebelum waitForSelector)
+          // 1. Deteksi Proteksi Captcha / Cloudflare sebelum menunggu selector
           const captchaCheck = await checkIfBlockedByCaptcha(
             page,
             response?.status(),
@@ -268,20 +313,21 @@ export async function scrapeFundamentalTradingView(
               "warn",
               `[Scraper] [${code}] Tab (${tab.suffix}) terhalang: ${captchaCheck.reason}`,
             );
-            return; // Batalkan proses tab ini (state tetap 'error')
+            return;
           }
 
-          // Cek jika halaman tidak ditemukan atau error
+          // 2. Cek validitas status respons HTTP
           if (!response || !response.ok()) {
-            return; // state tetap 'error'
+            return;
           }
 
-          // Tunggu hidrasi element
+          // 3. Tunggu hidrasi elemen tabel utama (Timeout 8s)
           await page
             .waitForSelector(tab.waitSelector, { timeout: 8000 })
             .catch(() => {});
           const html = await page.content();
 
+          // 4. Ekstrak data tabel ke masterHistory
           extractTableData(html, tab.mapping, masterHistory);
 
           if (hasDataInTab(masterHistory, tab.mapping)) {
@@ -290,25 +336,25 @@ export async function scrapeFundamentalTradingView(
             tabStatus[index]!.state = "empty";
           }
         } catch (tabErr) {
-          // state tetap 'error'
+          // Kesalahan tab akan ditangkap di sini, state tetap 'error'
         } finally {
           await page.close().catch(() => {});
         }
       }),
     );
 
-    // Kumpulkan tab yang gagal/tidak lengkap
+    // Kumpulkan daftar tab yang tidak berhasil diambil
     const incompleteTabs = tabStatus
       .filter((s) => s.state !== "success")
       .map((s) => s.tab);
 
-    // Jika semua tab gagal, return false
+    // Jika seluruh tab gagal, anggap proses scraping emiten ini gagal
     if (incompleteTabs.length === TABS.length) {
       safeLog("warn", `[Scraper] Seluruh tab gagal untuk [${code}]`);
       return false;
     }
 
-    // Pembersihan data kosong
+    // Pembersihan entri periode yang seluruh metriknya kosong (null)
     const cleanedHistory: Record<string | number, TradingViewFinancialHistory> =
       {};
     for (const [period, metrics] of Object.entries(masterHistory)) {

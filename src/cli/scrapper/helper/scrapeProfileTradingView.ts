@@ -2,16 +2,26 @@ import * as cheerio from "cheerio";
 import type { ScrapedProfile } from "../../../types";
 import { parseRawData } from "../../../utils/scrapper/parseRawData";
 
+/**
+ * Membersihkan karakter Unicode tersembunyi/formatting khusus dari string.
+ */
 function cleanText(raw: string): string {
   return raw.replace(/[\u200E\u200F\u202A-\u202E\u00A0\u202F]/g, "").trim();
 }
 
+/**
+ * Memeriksa apakah string merupakan penanda nilai kosong (dash/blank).
+ */
 function isEmptyMarker(clean: string): boolean {
   return clean === "" || clean === "—" || clean === "--";
 }
 
 /**
- * Membedah HTML halaman utama Ticker TradingView
+ * Membedah (parse) HTML halaman overview TradingView menggunakan Cheerio
+ * untuk mengekstrak profil perusahaan dan metrik finansial ringkas.
+ *
+ * @param html - String HTML mentah dari halaman overview TradingView.
+ * @returns Objek `ScrapedProfile` berisi metrik fundamental ringkas.
  */
 export function scrapeProfileTradingView(html: string): ScrapedProfile {
   const $ = cheerio.load(html);
@@ -31,7 +41,7 @@ export function scrapeProfileTradingView(html: string): ScrapedProfile {
     $("div[class*='content-oqCCtNt1']").text();
   if (descText) data.description = cleanText(descText).replace(/\s+/g, " ");
 
-  // 2. Ekstrak Metrik Finansial
+  // 2. Ekstrak Metrik Finansial dari Blok Key Stats
   $("div[data-container-name='key-stats-id'] div[class*='block-']").each(
     (_, el) => {
       const $el = $(el);
@@ -54,7 +64,7 @@ export function scrapeProfileTradingView(html: string): ScrapedProfile {
     },
   );
 
-  // 3. Trik Cerdas Last Dividend
+  // 3. Ekstrak Dividen Terakhir via FAQ Widget
   const faqText = $("div[data-container-name='symbol-faq-widget-id']").text();
   if (faqText) {
     const dividendMatch = /last dividend per share was\s*([\d.,]+)/i.exec(
@@ -69,8 +79,12 @@ export function scrapeProfileTradingView(html: string): ScrapedProfile {
 }
 
 /**
- * Membuka halaman utama symbol saham via Playwright Context
- * Mengembalikan string HTML jika sukses, atau false jika 404 / gagal / timeout
+ * Mengambil string HTML halaman overview simbol saham via Playwright Context.
+ * Dilengkapi dengan fail-fast navigation timeout (20s) dan validasi respons HTTP.
+ *
+ * @param symbol - Simbol ticker TradingView (misal: "IDX-BBCA").
+ * @param context - Instance `BrowserContext` Playwright aktif.
+ * @returns String HTML mentah jika berhasil, atau `false` jika navigasi/hidrasi gagal.
  */
 export async function fetchTradingViewOverviewHtml(
   symbol: string,
@@ -80,23 +94,21 @@ export async function fetchTradingViewOverviewHtml(
   const page = await context.newPage();
 
   try {
-    // 🛡️ FIX 1: Potong timeout navigasi dari 60 detik menjadi 15-20 detik saja (Fail Fast)
+    // 1. Navigasi ke URL target dengan batas waktu aman (Fail Fast)
     const response = await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout: 20_000,
     });
 
-    // 🛡️ FIX 2: Cek validitas response secara menyeluruh (!response.ok())
-    // Menangkap status 404, 403, 500, atau jika network mendadak putus (null)
+    // 2. Validasi status respons HTTP (Menagkap 404, 403, 500, atau network dropped)
     if (!response || !response.ok()) {
       console.warn(
         `[Scraper] Ticker [${symbol}] diabaikan (Status: ${response ? response.status() : "No Response"}).`,
       );
-      return false; // Langsung keluar! Menghindari gantung 30 detik di bawah.
+      return false;
     }
 
-    // 🛡️ FIX 3: Potong timeout tunggu hidrasi dari 30 detik menjadi maksimal 10 detik
-    // Gunakan Array.from() standar agar kodenya lebih clean dibanding prototype slice
+    // 3. Tunggu hidrasi elemen Key-Stats (Maksimal 10 detik)
     await page
       .waitForFunction(
         () => {
@@ -135,7 +147,12 @@ export async function fetchTradingViewOverviewHtml(
 }
 
 /**
- * Fungsi utama: Fetch + Parse dengan proteksi short-circuit 404
+ * Orchestrator Profil: Mengombinasikan pengambilan HTML (Playwright)
+ * dan ekstraksi data profil (Cheerio).
+ *
+ * @param symbol - Simbol ticker TradingView (misal: "IDX-BBCA").
+ * @param context - Instance `BrowserContext` Playwright aktif.
+ * @returns Objek `ScrapedProfile` jika berhasil, atau `false` jika gagal/404.
  */
 export async function scrapeTradingViewProfile(
   symbol: string,
