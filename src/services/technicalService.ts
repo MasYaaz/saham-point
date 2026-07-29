@@ -6,7 +6,7 @@ import { computeTechnicalIndicators } from "../utils/mcp/technicalIndicator";
  */
 export async function getTechnicalIndicators(
   code: string,
-  range: string = "1y",
+  range: string = "3y",
 ) {
   const formattedCode = code.toUpperCase();
   const fetched = await fetchYahooCandles(formattedCode, range);
