@@ -3,7 +3,10 @@ name: Release Saham Point
 on:
   push:
     tags:
-      - "v*" # Berjalan otomatis saat kamu push tag bertema v1.0.0, v1.0.1, dll.
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   build-and-release:
@@ -22,6 +25,9 @@ jobs:
 
       - name: Build tar archive
         run: bun run build:tar
+
+      - name: Check file existence (Debug)
+        run: ls -la saham-point.tar.gz
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
