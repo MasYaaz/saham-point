@@ -7,13 +7,14 @@ const baseCommands = [
   "detail",
   "show emiten",
   "show mcptools",
+  "logs",
+  "logs list",
+  "logs clean",
+  "logs all",
   "clear",
   "exit",
 ];
 
-// 🔒 Private — tidak lagi di-export mentah. Sebelumnya caller luar
-// (index.ts) baca & reassign variabel ini langsung, sekarang harus
-// lewat fungsi publik di bawah.
 let currentSuggestion = "";
 
 function computeMatch(trimmed: string): string {
@@ -60,7 +61,6 @@ export function renderGhostSuggestion(): void {
  * Terapkan suggestion yang sedang tampil (dipanggil saat Tab/→ ditekan).
  * Return true kalau ada suggestion yang di-apply — caller pakai ini
  * untuk tahu kapan harus early-return dan tidak lanjut proses keypress lain.
- * Sebelumnya logic ini nyasar di keypress handler index.ts.
  */
 export function acceptSuggestion(): boolean {
   if (!currentSuggestion) return false;

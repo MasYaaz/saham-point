@@ -1,16 +1,45 @@
 #!/usr/bin/env bun
+import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
 import { VERSION } from "./config";
 import { registerCoreTools } from "./mcp/coreTools";
 import { registerBandarmologyTools } from "./mcp/bandarmologyTools";
 import { registerScreenerTools } from "./mcp/screenerTools";
 
 /* ============================================================================
+ * ENVIRONMENT INITIALIZATION (Native Bun - Zero Dependency)
+ * Membaca .env berdasarkan lokasi file index.ts menggunakan Bun.file
+ * ============================================================================ */
+
+async function initEnv() {
+  // Sesuaikan lokasi .env (misal jika index.ts ada di /src, mundur 1 folder ke root)
+  const envPath = path.resolve(import.meta.dir, "../.env");
+  const file = Bun.file(envPath);
+
+  if (await file.exists()) {
+    const text = await file.text();
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#") && trimmed.includes("=")) {
+        const [key, ...values] = trimmed.split("=");
+        const val = values
+          .join("=")
+          .replace(/^["']|["']$/g, "")
+          .trim();
+        const envKey = key ? key.trim() : "";
+        if (envKey && !process.env[envKey]) {
+          process.env[envKey] = val;
+        }
+      }
+    }
+  }
+}
+
+await initEnv();
+
+/* ============================================================================
  * MCP SERVER FACTORY ENGINE
- * Catatan: Menggunakan Dynamic Import (Lazy Loading) di dalam handler tool
- * untuk menjamin startup time server tetap instan.
  * ============================================================================ */
 
 export function createMcpServer() {
@@ -30,9 +59,6 @@ export function createMcpServer() {
  * HELPER UNTUK TAMPILAN CLI TUI
  * ============================================================================ */
 
-/**
- * Mengembalikan daftar nama dan deskripsi dari seluruh tool yang terdaftar.
- */
 export function getMcpToolsList() {
   const mcpServer = createMcpServer();
 
@@ -57,7 +83,6 @@ async function startMcpServer() {
   console.error(`[MCP] Saham Point MCP Server v${VERSION} running on stdio`);
 }
 
-// Menjalankan server jika berkas dipanggil sebagai entry point utama
 if (
   import.meta.main ||
   process.argv[1]?.includes("index") ||

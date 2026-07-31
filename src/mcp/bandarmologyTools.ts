@@ -18,12 +18,12 @@ const AVAILABLE_SECTORS = [
 ] as const;
 
 export function registerBandarmologyTools(mcpServer: McpServer) {
-  // --- Broker Summary (Bandarmology) ---
+  // --- Broker Summary (Bandarmology via Stockbit) ---
   mcpServer.registerTool(
     "get_broker_summary",
     {
       description:
-        "Mengambil dan mengagregasi data Broker Summary (aktivitas transaksi sekuritas/broker) emiten BEI/IDX untuk 1 hari bursa (default) atau rentang tanggal tertentu.",
+        "Mengambil data Broker Summary (Bandarmology / Net Buy & Net Sell Broker) emiten BEI/IDX dari Stockbit untuk 1 hari bursa atau rentang tanggal tertentu.",
       inputSchema: {
         code: z
           .string()
@@ -43,65 +43,42 @@ export function registerBandarmologyTools(mcpServer: McpServer) {
       },
     },
     async ({ code, startDate, endDate }) => {
-      const { getBrokerSummary } =
-        await import("../services/brokerSummaryService");
-      const { getWeekdaysInRange } = await import("../utils/mcp/getWeeksDay");
+      const { getBroxsum } = await import("../services/stockbitBroxsumService");
 
       // Menentukan tanggal default (1 Hari Bursa Terakhir)
       const now = new Date();
-      const [todayStr = ""] = now.toISOString().split("T");
 
+      // Fallback: Jika tanggal tidak diisi dan hari ini akhir pekan, mundur ke Jumat
+      if (!startDate && !endDate) {
+        while (now.getDay() === 0 || now.getDay() === 6) {
+          now.setDate(now.getDate() - 1);
+        }
+      }
+
+      const [todayStr = ""] = now.toISOString().split("T");
       const effectiveStartDate = startDate || endDate || todayStr;
       const effectiveEndDate = endDate || startDate || todayStr;
 
       try {
-        let dates = getWeekdaysInRange(effectiveStartDate, effectiveEndDate);
-
-        // Fallback: Jika tanggal default jatuh pada akhir pekan, mundur ke hari kerja terakhir (Jumat)
-        if (dates.length === 0 && !startDate && !endDate) {
-          while (now.getDay() === 0 || now.getDay() === 6) {
-            now.setDate(now.getDate() - 1);
-          }
-          const [fallbackStr = todayStr] = now.toISOString().split("T");
-          dates = getWeekdaysInRange(fallbackStr, fallbackStr);
-        }
-
-        if (dates.length === 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    code: code.toUpperCase(),
-                    periodDays: 0,
-                    message:
-                      "Rentang tanggal tidak valid atau tidak memuat hari bursa (Senin-Jumat).",
-                    data: null,
-                  },
-                  null,
-                  2,
-                ),
-              },
-            ],
-          };
-        }
-
-        // Eksekusi pengambilan data broker summary
-        const result = await getBrokerSummary({
+        const result = await getBroxsum({
           ticker: code,
-          dates,
+          fromDate: effectiveStartDate,
+          toDate: effectiveEndDate,
         });
 
-        if (!result || result.allBrokers.length === 0) {
+        if (
+          !result ||
+          (result.netBuyBrokers.length === 0 &&
+            result.netSellBrokers.length === 0)
+        ) {
           return {
             content: [
               {
                 type: "text",
                 text: JSON.stringify(
                   {
+                    status: "empty",
                     code: code.toUpperCase(),
-                    periodDays: dates.length,
                     message: `Tidak ada data broker summary ditemukan untuk ${code} pada periode ${effectiveStartDate} s/d ${effectiveEndDate}`,
                     data: null,
                   },
@@ -121,18 +98,14 @@ export function registerBandarmologyTools(mcpServer: McpServer) {
                 {
                   status: "success",
                   code: result.ticker,
-                  periodDays: result.periodDays,
                   range: {
-                    startDate: effectiveStartDate,
-                    endDate: effectiveEndDate,
+                    fromDate: result.fromDate,
+                    toDate: result.toDate,
                   },
-                  summary: {
-                    grandTotalVolume: result.grandTotalVolume,
-                    grandTotalValue: result.grandTotalValue,
-                    grandTotalFrequency: result.grandTotalFrequency,
-                  },
-                  topBrokersByValue: result.topBrokersByValue,
-                  allBrokers: result.allBrokers,
+                  bandarDetector: result.bandarDetector,
+                  topAccumulationRatio: result.topAccumulationRatio,
+                  netBuyBrokers: result.netBuyBrokers,
+                  netSellBrokers: result.netSellBrokers,
                 },
                 null,
                 2,
@@ -151,7 +124,7 @@ export function registerBandarmologyTools(mcpServer: McpServer) {
                   code: code.toUpperCase(),
                   message:
                     error?.message ||
-                    "Gagal mengambil data broker summary dari BEI.",
+                    "Gagal mengambil data broker summary dari Stockbit.",
                 },
                 null,
                 2,
