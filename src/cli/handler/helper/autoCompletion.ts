@@ -1,5 +1,5 @@
-import { GRAY, RESET } from "../component/TUITheme";
-import { readlineHead } from "../component/readlineInterface";
+import { GRAY, RESET } from "../../component/TUITheme";
+import { readlineHead } from "../../component/readlineInterface";
 import { matchEmitenCode } from "./emitenCache";
 
 const baseCommands = [

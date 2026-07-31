@@ -1,23 +1,22 @@
-import { scrapeFundamentalTradingView } from "../src/cli/scrapper/helper/scrapeFundamentalTradingView";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { scrapeFundamentalTradingView } from "../src/cli/scraper/helper/scrapeStockHistories";
 import {
   createBatchContext,
   getOrInitBrowser,
-} from "../src/utils/scrapper/browser";
-// 1. Import utilitas browser baru (sesuaikan path foldermu jika berbeda)
+} from "../src/utils/scrapper/browserManager";
 
 async function runTradingViewTest() {
-  const ticker = "AYLS";
+  const ticker = "ADRO";
   console.log(
     `\n🔍 Memulai pengujian scraper TradingView untuk emiten: ${ticker}...`,
   );
 
   // Siapkan persistent browser & context terproteksi
-  // Ambil instance Browser global (tidak akan relaunch jika sudah ada)
   const browser = await getOrInitBrowser().catch((e) => {
     throw new Error(`CRITICAL_BROWSER_FAILURE: ${e.message}`);
   });
 
-  // Buat BrowserContext baru yang super ringan khusus untuk batch ini
   const context = await createBatchContext(browser).catch((e) => {
     throw new Error(`CRITICAL_CONTEXT_FAILURE: ${e.message}`);
   });
@@ -25,7 +24,6 @@ async function runTradingViewTest() {
   const startTime = performance.now();
 
   try {
-    // 3. Oper context sebagai parameter kedua ke scraper fundamental
     const result = await scrapeFundamentalTradingView(ticker, context);
     const endTime = performance.now();
 
@@ -33,13 +31,89 @@ async function runTradingViewTest() {
 
     if (!result) {
       console.error(
-        "❌ Gagal! Scraper TradingView mengembalikan nilai false/kosong.",
+        "❌ Gagal! Scraper TradingView mengembalikan nilai false/kosong.\n",
       );
-      console.error(
-        "Kemungkinan penyebab: (1) Halaman 404 karena ticker salah; " +
-          "(2) Terkena block proteksi bot Cloudflare; atau " +
-          "(3) Selector utama 'waitSelector' mengalami timeout saat hidrasi.",
+
+      // ======================================================================
+      // AUTOMATIC DIAGNOSTIC & DEBUG CAPTURE
+      // ======================================================================
+      console.log(
+        "📸 Menjalankan diagnostik halaman & mengambil screenshot...",
       );
+
+      const symbol =
+        ticker.toUpperCase() === "IHSG"
+          ? "IDX-COMPOSITE"
+          : `IDX-${ticker.toUpperCase()}`;
+      const debugUrl = `https://www.tradingview.com/symbols/${symbol}/financials-income-statement/?statements-period=FY`;
+
+      const debugPage = await context.newPage();
+
+      try {
+        const response = await debugPage.goto(debugUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 20000,
+        });
+
+        const status = response?.status();
+        const pageTitle = await debugPage.title();
+        const finalUrl = debugPage.url();
+
+        console.log(`\n--- RESULT INSPECTION ---`);
+        console.log(`[Debug] Target URL    : ${debugUrl}`);
+        console.log(`[Debug] Final URL     : ${finalUrl}`);
+        console.log(`[Debug] HTTP Status   : ${status}`);
+        console.log(`[Debug] Page Title    : "${pageTitle}"`);
+
+        // Tunggu 3 detik untuk hidrasi JS React/Next.js
+        await debugPage.waitForTimeout(3000);
+
+        // 1. Simpan Screenshot Full Page
+        const screenshotPath = path.resolve(
+          process.cwd(),
+          "debug_tradingview.png",
+        );
+        await debugPage.screenshot({ path: screenshotPath, fullPage: true });
+        console.log(`📸 Screenshot tersimpan di : ${screenshotPath}`);
+
+        // 2. Simpan File HTML Mentah
+        const html = await debugPage.content();
+        const htmlPath = path.resolve(process.cwd(), "debug_tradingview.html");
+        await fs.writeFile(htmlPath, html, "utf-8");
+        console.log(`📄 HTML Dump tersimpan di  : ${htmlPath}`);
+
+        // 3. Inspeksi Elemen Tabel Utama
+        const dataNameCount = await debugPage.locator("[data-name]").count();
+        console.log(`📊 Elemen [data-name] ditemukan: ${dataNameCount}`);
+
+        console.log(`\n--- DIAGNOSA SEMENTARA ---`);
+        if (
+          status === 403 ||
+          pageTitle.includes("Just a moment") ||
+          pageTitle.includes("Cloudflare")
+        ) {
+          console.error(
+            "⛔ TERBLOKIR CAPTCHA / CLOUDFLARE: Browser terdeteksi sebagai bot oleh TradingView.",
+          );
+        } else if (finalUrl !== debugUrl && !finalUrl.includes(symbol)) {
+          console.error(
+            "⛔ REDIRECT ERROR: Ticker mungkin tidak ditemukan di TradingView (404/Redirect).",
+          );
+        } else if (dataNameCount === 0) {
+          console.error(
+            "⛔ HYDRATION TIMEOUT: Elemen [data-name] belum ter-render saat scraping berjalan.",
+          );
+        } else {
+          console.warn(
+            "⚠️ ELEMEN ADA: DOM berhasil dimuat, tetapi fungsi parser Cheerio perlu penyesuaian.",
+          );
+        }
+      } catch (debugErr) {
+        console.error("❌ Gagal saat menjalankan inspeksi debug:", debugErr);
+      } finally {
+        await debugPage.close().catch(() => {});
+      }
+
       return;
     }
 
@@ -54,7 +128,7 @@ async function runTradingViewTest() {
       error,
     );
   } finally {
-    // 4. WAJIB: Selalu tutup browser di stage finally agar tidak meninggalkan zombie process di RAM
+    // Selalu tutup browser di stage finally agar tidak meninggalkan zombie process di RAM
     await browser.close();
   }
 }

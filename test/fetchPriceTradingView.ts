@@ -19,7 +19,7 @@ console.log(
 // 2. DYNAMIC IMPORT (Di-load setelah process.cwd() berubah ke root)
 // ============================================================================
 const { fetchPriceTradingView } =
-  await import("../src/cli/scrapper/helper/fetchPriceTradingView");
+  await import("../src/services/tradingViewService");
 const { default: db } = await import("../src/db");
 import type { EmitenItem } from "../src/types";
 

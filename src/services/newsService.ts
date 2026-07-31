@@ -15,33 +15,62 @@ const parser = new Parser({
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     Accept: "application/rss+xml, application/xml, text/xml; q=0.1",
   },
-  timeout: 8000,
+  timeout: 5000,
 });
 
 function cleanHtml(text: string): string {
   if (!text) return "";
-  let cleaned = text.replace(/<[^>]+>/g, "");
-  const entities: Record<string, string> = {
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&nbsp;": " ",
-    "&#39;": "'",
-    "&quot;": '"',
-  };
-  for (const [entity, char] of Object.entries(entities)) {
-    cleaned = cleaned.replaceAll(entity, char);
-  }
-  return cleaned.trim();
+  return text
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getTitleSimilarity(title1: string, title2: string): number {
+  const words1 = new Set(normalizeText(title1).split(" "));
+  const words2 = new Set(normalizeText(title2).split(" "));
+
+  if (words1.size === 0 || words2.size === 0) return 0;
+
+  let intersection = 0;
+  for (const word of words1) {
+    if (words2.has(word)) intersection++;
+  }
+
+  const union = new Set([...words1, ...words2]).size;
+  return intersection / union;
+}
+
+/**
+ * Mengambil, membersihkan, dan memfilter berita RSS emiten terkini.
+ *
+ * @param symbol Ticker saham (misal: "AMRT")
+ * @param companyName Nama perusahaan opsional untuk query presisi (misal: "Alfamart")
+ * @param lang Bahasa berita ("id" | "en")
+ * @param maxDays Batas maksimal umur berita dalam hari (default: 14 hari)
+ */
 export async function fetchEmitenNews(
   symbol: string,
   companyName?: string,
-  limit: number = 10,
   lang: "id" | "en" = "id",
+  maxDays: number = 14,
 ): Promise<NewsItem[]> {
   const cleanSymbol = symbol.trim().toUpperCase().replace(/\.JK$/i, "");
+
   const searchQuery = companyName
     ? `"${cleanSymbol}" OR "${companyName}"`
     : `"${cleanSymbol}"`;
@@ -70,50 +99,82 @@ export async function fetchEmitenNews(
           },
         ];
 
-  const results: NewsItem[] = [];
-  const seenTitles = new Set<string>();
-
-  for (const target of rssTargets) {
-    if (results.length >= limit) break;
+  const feedPromises = rssTargets.map(async (target) => {
     try {
       const feed = await parser.parseURL(target.url);
-      for (const item of feed.items || []) {
-        if (results.length >= limit) break;
-        const rawTitle = (item.title || "").trim();
-        if (!rawTitle) continue;
-
-        let title = rawTitle;
-        let sourceName = target.defaultSource;
-
-        if (
-          rawTitle.includes(" - ") &&
-          target.defaultSource.startsWith("Google News")
-        ) {
-          const lastDashIndex = rawTitle.lastIndexOf(" - ");
-          title = rawTitle.substring(0, lastDashIndex).trim();
-          sourceName = rawTitle.substring(lastDashIndex + 3).trim();
-        }
-
-        const normalizedTitle = title.toLowerCase();
-        if (seenTitles.has(normalizedTitle)) continue;
-
-        const rawSummary =
-          item.contentSnippet || item.content || item.summary || "";
-
-        seenTitles.add(normalizedTitle);
-        results.push({
-          symbol: cleanSymbol,
-          title,
-          url: item.link || "",
-          published: item.pubDate || item.isoDate || "",
-          summary: cleanHtml(rawSummary).slice(0, 300),
-          source: sourceName,
-        });
-      }
+      return { target, items: feed.items || [] };
     } catch {
-      continue;
+      return { target, items: [] };
+    }
+  });
+
+  const feedResults = await Promise.allSettled(feedPromises);
+  const rawNewsList: Array<NewsItem & { timestamp: number }> = [];
+  const seenUrls = new Set<string>();
+  const processedTitles: string[] = [];
+
+  const now = Date.now();
+  const maxAgeMs = maxDays * 24 * 60 * 60 * 1000;
+
+  for (const result of feedResults) {
+    if (result.status !== "fulfilled") continue;
+
+    const { target, items } = result.value;
+
+    for (const item of items) {
+      const rawTitle = (item.title || "").trim();
+      const rawUrl = (item.link || "").trim();
+      if (!rawTitle || !rawUrl) continue;
+
+      if (seenUrls.has(rawUrl)) continue;
+
+      let title = rawTitle;
+      let sourceName = target.defaultSource;
+
+      if (
+        rawTitle.includes(" - ") &&
+        target.defaultSource.startsWith("Google News")
+      ) {
+        const lastDashIndex = rawTitle.lastIndexOf(" - ");
+        title = rawTitle.substring(0, lastDashIndex).trim();
+        sourceName = rawTitle.substring(lastDashIndex + 3).trim();
+      }
+
+      // Filter Duplikasi Judul Mirip (Threshold >= 75%)
+      const isDuplicateTitle = processedTitles.some(
+        (existingTitle) => getTitleSimilarity(existingTitle, title) >= 0.75,
+      );
+      if (isDuplicateTitle) continue;
+
+      const pubDate = item.pubDate || item.isoDate;
+      const parsedDate = pubDate ? new Date(pubDate) : new Date();
+      const timestamp = isNaN(parsedDate.getTime())
+        ? now
+        : parsedDate.getTime();
+
+      // Filter Umur Berita
+      if (now - timestamp > maxAgeMs) continue;
+
+      const rawSummary =
+        item.contentSnippet || item.summary || item.content || "";
+      const cleanedSummary = cleanHtml(rawSummary);
+
+      seenUrls.add(rawUrl);
+      processedTitles.push(title);
+
+      rawNewsList.push({
+        symbol: cleanSymbol,
+        title,
+        url: rawUrl,
+        published: new Date(timestamp).toISOString(),
+        summary: cleanedSummary.slice(0, 300),
+        source: sourceName,
+        timestamp,
+      });
     }
   }
 
-  return results.slice(0, limit);
+  // Urutkan dari yang paling terbaru
+  rawNewsList.sort((a, b) => b.timestamp - a.timestamp);
+  return rawNewsList.map(({ timestamp, ...news }) => news);
 }

@@ -1,7 +1,7 @@
 import { VERSION } from "../../config";
 import { BG_GREEN, BG_RED, BOLD, GREEN, RESET, UNDERLINE } from "./TUITheme";
 import { getMarketStatus } from "../../utils/scrapper/marketStatus";
-import { fundamentalSyncState } from "../helper/runSyncDataAll";
+import { fundamentalSyncState } from "../handler/helper/runSyncDataAll";
 import { TUI } from "./TUIDesignFormater";
 
 const market = getMarketStatus();

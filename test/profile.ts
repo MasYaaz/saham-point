@@ -1,8 +1,8 @@
-import { scrapeTradingViewProfile } from "../src/cli/scrapper/helper/scrapeProfileTradingView";
+import { scrapeTradingViewProfile } from "../src/cli/scraper/helper/scrapeProfileTradingView";
 import {
   createBatchContext,
   getOrInitBrowser,
-} from "../src/utils/scrapper/browser";
+} from "../src/utils/scrapper/browserManager";
 
 async function runProfileTest() {
   const ticker = "AYLS";

@@ -4,6 +4,7 @@ export interface RawStockData {
   name: string;
   sector?: string;
   notation?: string;
+  last_price?: number;
 }
 
 export interface CountResult {
@@ -134,4 +135,27 @@ export interface CandleHistory {
   low: number;
   close: number;
   volume: number;
+}
+
+export interface EmitenBasicInfo {
+  code: string;
+  name: string;
+  sector?: string;
+}
+
+export interface GorenganSuspect {
+  code: string;
+  name: string;
+  sector: string;
+  last_price: number;
+  market_cap: number | null;
+  gorengan_score: number;
+  reasons: string[];
+  per: number | null;
+  pbv: number | null;
+  roe: number | null;
+  candle_signals?: {
+    volume_spike_ratio: number; // Misal 3.5x dari rata-rata 20 hari
+    recent_5d_return_pct: number; // Kenaikan harga 5 hari terakhir (%)
+  };
 }

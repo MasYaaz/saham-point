@@ -1,8 +1,7 @@
 import readline from "readline";
-import { fundamentalSyncState, runSyncDataAll } from "../helper/runSyncDataAll";
+import { fundamentalSyncState, runSyncDataAll } from "./helper/runSyncDataAll";
 import { readlineHead } from "../component/readlineInterface";
-import { renderGhostSuggestion } from "../helper/autoCompletion";
-import { tuiLogState } from "../helper/safeLog";
+import { renderGhostSuggestion } from "./helper/autoCompletion";
 
 let syncAnimationTimer: ReturnType<typeof setInterval> | null = null;
 let syncSpinnerIndex = 0;
@@ -21,20 +20,15 @@ function formatElapsed(ms: number): string {
 }
 
 function clearProgressLine() {
-  // Hitung total baris yang pernah digambar sebelumnya (Jumlah Log + 1 Baris Loading Bar)
-  const linesToClear = tuiLogState.lastLogLinesCount + 1;
+  // Naik 1 baris ke posisi progress bar, bersihkan baris, lalu kembali ke baris prompt
+  readline.moveCursor(process.stdout, 0, -1);
+  readline.cursorTo(process.stdout, 0);
+  readline.clearLine(process.stdout, 0);
+  readline.moveCursor(process.stdout, 0, 1);
+  readline.cursorTo(process.stdout, 0);
 
-  if (linesToClear > 0) {
-    // Lompat ke baris paling atas dari seluruh blok TUI kita
-    readline.moveCursor(process.stdout, 0, -linesToClear);
-    for (let i = 0; i < linesToClear; i++) {
-      readline.cursorTo(process.stdout, 0);
-      readline.clearLine(process.stdout, 0);
-      readline.moveCursor(process.stdout, 0, 1);
-    }
-  }
-  tuiLogState.lastLogLinesCount = 0;
-  tuiLogState.activeLogs = [];
+  (readlineHead as any)._refreshLine();
+  renderGhostSuggestion();
 }
 
 function stopSyncAnimation() {
@@ -63,42 +57,21 @@ function drawProgress() {
     `  ${spinner} [${prog}] ${Math.round(pct * 100)}%` +
     ` | ⏱ ${elapsed} | Emiten: ${code.padEnd(8, " ")}`;
 
-  // 1. PEMBERSIHAN DITENTUKAN OLEH FORMAT RENDER SEBELUMNYA
-  const linesToClear = tuiLogState.lastLogLinesCount + 1;
-  readline.moveCursor(process.stdout, 0, -linesToClear);
-  for (let i = 0; i < linesToClear; i++) {
-    readline.cursorTo(process.stdout, 0);
-    readline.clearLine(process.stdout, 0);
-    readline.moveCursor(process.stdout, 0, 1);
-  }
-
-  // Kursor sekarang berada tepat di posisi awal baris prompt asli.
-  // 2. DIGAMBAR DARI ATAS KE BAWAH SECARA BERTAHAP
-  const currentLogsCount = tuiLogState.activeLogs.length;
-
-  // Naik sejauh (Jumlah log aktif saat ini + 1 baris loading bar)
-  readline.moveCursor(process.stdout, 0, -(currentLogsCount + 1));
-
-  // Cetak daftar log aktif yang belum kedaluwarsa
-  for (const logMsg of tuiLogState.activeLogs) {
-    readline.cursorTo(process.stdout, 0);
-    process.stdout.write(logMsg + "\n"); // Safe karena posisi diatur manual
-  }
-
-  // Cetak loading bar tepat di bawah daftar log
+  // 1. Posisikan kursor 1 baris tepat di atas prompt
+  readline.moveCursor(process.stdout, 0, -1);
   readline.cursorTo(process.stdout, 0);
+  readline.clearLine(process.stdout, 0);
+
+  // 2. Cetak loading bar
   process.stdout.write(barText);
 
-  // Turun kembali ke baris terbawah tempat bersarangnya prompt input user
+  // 3. Turun kembali ke baris prompt input user
   readline.moveCursor(process.stdout, 0, 1);
   readline.cursorTo(process.stdout, 0);
 
   // Refresh visual prompt bawaan readlineHead
   (readlineHead as any)._refreshLine();
   renderGhostSuggestion();
-
-  // 📝 Kunci jumlah baris log saat ini untuk referensi pembersihan di 100ms berikutnya
-  tuiLogState.lastLogLinesCount = currentLogsCount;
 }
 
 export async function handleSync(renderTUI: () => void) {
@@ -125,7 +98,7 @@ export async function handleSync(renderTUI: () => void) {
   syncStartTime = Date.now();
   syncLastState = { sudah: 0, total: 0, code: "-" };
 
-  // Satu-satunya mesin pencetak visual ke terminal luar
+  // Timer animasi visual progress bar
   syncAnimationTimer = setInterval(() => {
     syncSpinnerIndex = (syncSpinnerIndex + 1) % spinnerFrames.length;
     drawProgress();
@@ -135,8 +108,7 @@ export async function handleSync(renderTUI: () => void) {
     await runSyncDataAll((sudah, total, code) => {
       if (!fundamentalSyncState.isActive) return;
 
-      // 🛡️ FIX KUNCI: Amankan state data terbaru di memori.
-      // JANGAN panggil drawProgress() di sini untuk menghindari tabrakan kursor TTY.
+      // Amankan state data terbaru di memori tanpa memicu bentrokan kursor TTY
       syncLastState = { sudah, total, code };
     });
 
@@ -149,7 +121,6 @@ export async function handleSync(renderTUI: () => void) {
     );
     await new Promise((r) => setTimeout(r, 1500));
   } catch (err) {
-    // Tangkap jika ada error tak terduga dari level orkestrator
     stopSyncAnimation();
   } finally {
     stopSyncAnimation();

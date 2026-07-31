@@ -3,7 +3,6 @@ import { handleSync } from "./handler/handleSync";
 import { handleShowEmiten } from "./handler/handleShowEmiten";
 import { handleDetailEmiten } from "./handler/handleDetailEmiten";
 import { readlineHead } from "./component/readlineInterface";
-import { tuiLogState } from "./helper/safeLog";
 import { handleShowMcpTools } from "./handler/handleShowMCPTools";
 import {
   handleCleanLogs,
@@ -85,8 +84,6 @@ export async function handleCommand(
     }
 
     case "clear":
-      tuiLogState.activeLogs = [];
-      tuiLogState.lastLogLinesCount = 0;
       TUIHead();
       break;
 

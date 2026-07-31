@@ -1,4 +1,4 @@
-import { fetchYahooCandles } from "../utils/mcp/fetchYahooCandles";
+import { fetchYahooCandles } from "./yahooService";
 import { computeTechnicalIndicators } from "../utils/mcp/technicalIndicator";
 
 /**

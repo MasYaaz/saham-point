@@ -1,37 +1,23 @@
-import { safeLog } from "../../../cli/helper/safeLog";
+import { safeLog } from "../../../utils/safeLog";
 import db from "../../../db";
 import type { EmitenItem } from "../../../types";
-import { scrapeFundamentalTradingView } from "./scrapeFundamentalTradingView";
-import { scrapeTradingViewProfile } from "./scrapeProfileTradingView";
+import { scrapeFundamentalTradingView } from "./scrapeStockHistories";
 
 export type UpdateStatus = boolean | "INCOMPLETE";
 
 /**
- * Memperbarui data profil, fundamental, dan histori keuangan multi-tahun suatu emiten.
+ * Memperbarui data histori keuangan multi-tahun suatu emiten ke tabel `stock_histories`.
  *
- * Menggunakan Playwright untuk mengambil data dari TradingView. Dilengkapi dengan
- * mekanisme `Promise.race` (timeout guard 40 detik) dan `cancellation flag` untuk
- * mencegah kebocoran penulisan database (side-effect) jika proses scraping terhambat.
- *
- * @param code - Kode emiten saham (misal: "BBCA", "TLKM").
- * @param context - Instance `BrowserContext` Playwright aktif.
- * @returns Status pembaruan (`true` = sukses, `false` = gagal, `"INCOMPLETE"` = data parsial).
+ * Menggunakan Playwright untuk mengambil data 4 tab laporan keuangan TradingView.
+ * Dilengkapi dengan mekanisme `Promise.race` (timeout guard 40 detik) dan cancellation flag.
  */
 export async function updateFundamental(
   code: string,
   context: any,
 ): Promise<UpdateStatus> {
-  // Batas waktu maksimal (40s) untuk mengantisipasi worst-case latency Playwright
-  // (Profil scrape + 4 tab fundamental paralel + network delay)
   const EMITEN_TIMEOUT = 40000;
-
-  // Guard flag: Membatalkan seluruh operasi penulisan DB di internalWorker
-  // jika timeout tercapai sebelum worker selesai mengeksekusi tugas.
   const cancelled = { value: false };
 
-  /**
-   * Sub-fungsi pekerja internal untuk mengisolasi logika scraping dan penulisan DB.
-   */
   async function internalWorker(): Promise<UpdateStatus> {
     const stock = db
       .query("SELECT * FROM emiten WHERE code = ? LIMIT 1")
@@ -40,7 +26,6 @@ export async function updateFundamental(
     if (!stock) return false;
 
     const cleanCode = code.toUpperCase();
-    const tvProfileSymbol = `IDX-${cleanCode}`;
     const nowStr = new Date(
       new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }),
     )
@@ -48,88 +33,16 @@ export async function updateFundamental(
       .replace("T", " ")
       .substring(0, 19);
 
-    let isProfileSuccess = false;
     let isFundamentalSuccess = false;
     let isDataIncomplete = false;
     let missingTabs: string[] = [];
 
     // =========================================================================
-    // TAHAP 1: FETCH & UPDATE DATA PROFIL EMITEN
-    // =========================================================================
-    try {
-      const profileData = await scrapeTradingViewProfile(
-        tvProfileSymbol,
-        context,
-      );
-
-      // Batalkan penulisan DB jika timeout sudah terpicu
-      if (cancelled.value) return false;
-
-      if (profileData) {
-        const dividend = profileData.last_dividend ?? 0;
-        const rawYield =
-          dividend > 0 && stock.last_price > 0
-            ? (dividend / stock.last_price) * 100
-            : 0;
-        const divYield = Number(rawYield.toFixed(2));
-
-        const newDescription =
-          profileData.description || stock.description || "";
-        const newMarketCap =
-          profileData.market_cap && profileData.market_cap > 0
-            ? profileData.market_cap
-            : (stock.market_cap ?? null);
-        const newDividend =
-          profileData.last_dividend && profileData.last_dividend > 0
-            ? profileData.last_dividend
-            : (stock.dividend ?? null);
-        const newDivYield =
-          divYield > 0 ? divYield : (stock.dividend_yield ?? null);
-        const newBeta =
-          profileData.beta && profileData.beta !== 0
-            ? profileData.beta
-            : (stock.beta ?? null);
-        const newPerProfile =
-          profileData.per && profileData.per > 0
-            ? profileData.per
-            : (stock.per ?? null);
-
-        db.run(
-          `UPDATE emiten SET description = ?, market_cap = ?, dividend = ?, dividend_yield = ?, beta = ?, per = ?, is_profile_complete = 1 WHERE id = ?`,
-          [
-            newDescription,
-            newMarketCap,
-            newDividend,
-            newDivYield,
-            newBeta,
-            newPerProfile,
-            stock.id,
-          ],
-        );
-        isProfileSuccess = true;
-      } else {
-        safeLog(
-          "warn",
-          `[Scraper] Gagal mengekstrak profil TradingView untuk [${code}]`,
-        );
-      }
-    } catch (err: any) {
-      safeLog(
-        "warn",
-        `[Scraper] Error saat memproses profil TradingView [${code}]: ${err?.message || err}`,
-      );
-    }
-
-    // Cek ulang pembatalan sebelum melanjutkan ke Tahap 2 yang lebih berat
-    if (cancelled.value) return false;
-
-    // =========================================================================
-    // TAHAP 2: FETCH & UPDATE DATA FUNDAMENTAL HISTORIS
+    // FETCH & UPDATE DATA FUNDAMENTAL HISTORIS (MULTI-TAB PLAYWRIGHT)
     // =========================================================================
     try {
       const result = await scrapeFundamentalTradingView(cleanCode, context);
 
-      // Batalkan penulisan DB jika timeout terpicu selama scraping fundamental
       if (cancelled.value) return false;
 
       if (result && result.data && Object.keys(result.data).length > 0) {
@@ -137,7 +50,7 @@ export async function updateFundamental(
         missingTabs = result.incompleteTabs;
         isDataIncomplete = missingTabs.length > 0;
 
-        // 1. Penentuan Rangkuman Fundamental (Prioritas: TTM > Current > FY Terbaru)
+        // 1. Penentuan Rangkuman Fundamental (TTM > Current > FY Terbaru)
         const years = Object.keys(scrapedFundamentalData)
           .filter((k) => !isNaN(Number(k)))
           .map(Number)
@@ -155,7 +68,6 @@ export async function updateFundamental(
         };
 
         let summarySource = null;
-
         if (isValidSummary(scrapedFundamentalData["ttm"])) {
           summarySource = scrapedFundamentalData["ttm"];
         } else if (isValidSummary(scrapedFundamentalData["current"])) {
@@ -167,27 +79,22 @@ export async function updateFundamental(
           summarySource = scrapedFundamentalData[latestYear];
         }
 
+        // Update ringkasan rasio ke tabel emiten sebagai fallback
         if (summarySource) {
-          const newPbv =
-            summarySource.pbv !== null && summarySource.pbv !== undefined
-              ? summarySource.pbv
-              : (stock.pbv ?? null);
-          const newRoe =
-            summarySource.roe !== null && summarySource.roe !== undefined
-              ? summarySource.roe
-              : (stock.roe ?? null);
-          const newDer =
-            summarySource.der !== null && summarySource.der !== undefined
-              ? summarySource.der
-              : (stock.der ?? null);
-          const newPerFund =
-            summarySource.per !== null && summarySource.per !== undefined
-              ? summarySource.per
-              : (stock.per ?? null);
-
           db.run(
-            `UPDATE emiten SET pbv = ?, roe = ?, der = ?, per = ? WHERE id = ?`,
-            [newPbv, newRoe, newDer, newPerFund, stock.id],
+            `UPDATE emiten SET
+              pbv = COALESCE(?, pbv),
+              roe = COALESCE(?, roe),
+              der = COALESCE(?, der),
+              per = COALESCE(?, per)
+            WHERE id = ?`,
+            [
+              summarySource.pbv ?? null,
+              summarySource.roe ?? null,
+              summarySource.der ?? null,
+              summarySource.per ?? null,
+              stock.id,
+            ],
           );
         }
 
@@ -230,17 +137,11 @@ export async function updateFundamental(
             $emiten_id: stock.id,
             $year: year,
             $now: nowStr,
-            $revenue:
-              values.revenue !== null && values.revenue !== undefined
-                ? String(values.revenue)
-                : null,
+            $revenue: values.revenue ? String(values.revenue) : null,
             $gross_profit: values.gross_profit ?? null,
             $operating_income: values.operating_income ?? null,
             $ebit: values.ebit ?? null,
-            $net_profit:
-              values.net_profit !== null && values.net_profit !== undefined
-                ? String(values.net_profit)
-                : null,
+            $net_profit: values.net_profit ? String(values.net_profit) : null,
             $eps: values.eps ?? null,
             $average_basic_shares_outstanding:
               values.average_basic_shares_outstanding ?? null,
@@ -262,13 +163,10 @@ export async function updateFundamental(
         }
 
         isFundamentalSuccess = true;
-        isDataIncomplete = result.incompleteTabs.length > 0;
 
-        // Jika data lengkap, perbarui timestamp & kelengkapan. Jika parsial, biarkan
-        // fundamental_updated_at dikelola oleh caller untuk skenario cooldown retry.
         if (!isDataIncomplete) {
           db.run(
-            `UPDATE emiten SET fundamental_updated_at = ?, is_fundamental_complete = 1 WHERE id = ?`,
+            `UPDATE emiten SET fundamental_updated_at = ?, is_fundamental_complete = 1, is_profile_complete = 1 WHERE id = ?`,
             [nowStr, stock.id],
           );
         } else {
@@ -277,7 +175,6 @@ export async function updateFundamental(
           ]);
         }
       } else {
-        // Tandai sebagai incomplete jika respons kosong agar caller dapat menerapkan cooldown
         safeLog(
           "warn",
           `[Scraper] Data fundamental TradingView kosong/null untuk [${code}]`,
@@ -306,16 +203,15 @@ export async function updateFundamental(
       return "INCOMPLETE";
     }
 
-    return isProfileSuccess || isFundamentalSuccess;
+    return isFundamentalSuccess;
   }
 
   // =========================================================================
-  // MEKANISME TIMEOUT GUARD (Promise.race)
+  // TIMEOUT GUARD (Promise.race)
   // =========================================================================
   let timeoutId: any;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
-      // Tandai cancelled sebelum reject agar worker membatalkan penulisan DB
       cancelled.value = true;
       reject(
         safeLog(

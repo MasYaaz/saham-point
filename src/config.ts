@@ -1,6 +1,10 @@
+import path from "node:path";
+
 /**
- * Environment & Network Port Configuration
+ * Environment & Model Configuration
  */
+
+export const VERSION = "1.0.0";
 
 export const YAHOO_HEADERS = {
   "User-Agent":
@@ -21,5 +25,3 @@ export const TRADINGVIEW_HEADERS = {
   "Cache-Control": "max-age=0",
   Connection: "keep-alive",
 };
-
-export const VERSION = "1.0.0";

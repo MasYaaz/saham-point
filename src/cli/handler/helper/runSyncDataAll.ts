@@ -1,7 +1,7 @@
-import db from "../../db";
-import { syncDataAll } from "../scrapper";
-import { closeGlobalBrowser } from "../../utils/scrapper/browser";
-import { safeLog } from "./safeLog";
+import db from "../../../db";
+import { closeGlobalBrowser } from "../../../utils/scrapper/browserManager";
+import { safeLog } from "../../../utils/safeLog";
+import { syncStockHistories } from "../../scraper/syncStockHistories";
 
 export const fundamentalSyncState = {
   isActive: false,
@@ -69,7 +69,7 @@ export async function runSyncDataAll(
       const currentLimit = Math.min(BATCH_SIZE, sisaAwalBatch);
 
       try {
-        const result = await syncDataAll(
+        const result = await syncStockHistories(
           currentLimit,
           (_currentSuccess, totalEmiten, code, status) => {
             batchProcessed++;

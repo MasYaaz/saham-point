@@ -5,7 +5,7 @@ import {
   acceptSuggestion,
   clearSuggestion,
   renderGhostSuggestion,
-} from "./cli/helper/autoCompletion";
+} from "./cli/handler/helper/autoCompletion";
 import { TUIHead } from "./cli/component/TUIHead";
 
 // Render TUI Awal
