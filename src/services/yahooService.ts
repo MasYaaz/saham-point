@@ -16,6 +16,21 @@ const INTERVAL_MAP: Record<string, string> = {
 };
 
 /**
+ * Helper untuk format timestamp UNIX ke YYYY-MM-DD berbasis Timezone Indonesia (WIB)
+ */
+function formatLocalDate(ts: number): string {
+  const date = new Date(ts * 1000);
+  // Menggunakan Intl untuk mengunci timezone WIB/Asia/Jakarta
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(date); // Output format: YYYY-MM-DD
+}
+
+/**
  * Fetch dan transformasi data candle sejarah harga dari Yahoo Finance.
  */
 export async function fetchYahooCandles(code: string, range: string = "3y") {
@@ -34,36 +49,52 @@ export async function fetchYahooCandles(code: string, range: string = "3y") {
   const { meta, timestamp } = result;
   const quotes = result.indicators.quote[0];
 
-  // 2. Parse, format, dan bersihkan candle invalid
+  const seenDates = new Set<string>();
+
+  // 2. Parse, format timezone, dan hilangkan candle invalid/duplikat
   const history: CandleHistory[] = timestamp
     .map((ts, index) => {
-      const open = quotes.open[index];
-      const high = quotes.high[index];
-      const low = quotes.low[index];
-      const close = quotes.close[index];
+      const open = quotes.open?.[index];
+      const high = quotes.high?.[index];
+      const low = quotes.low?.[index];
+      const close = quotes.close?.[index];
       const volume = quotes.volume?.[index] ?? 0;
 
-      // Filter candle kosong/nol
+      // Filter data invalid/kosong/nol
       if (
-        open == null ||
-        high == null ||
-        low == null ||
-        close == null ||
-        close === 0
+        typeof open !== "number" ||
+        typeof high !== "number" ||
+        typeof low !== "number" ||
+        typeof close !== "number" ||
+        close === 0 ||
+        isNaN(close)
       ) {
         return null;
       }
 
+      const dateStr = formatLocalDate(ts);
+
+      // Cek & cegah tanggal duplikat (biasa terjadi pada data intraday/Yahoo glitch)
+      if (seenDates.has(dateStr)) {
+        return null;
+      }
+      seenDates.add(dateStr);
+
       return {
-        date: new Date(ts * 1000).toISOString().split("T")[0] ?? "",
+        date: dateStr,
         open,
         high,
         low,
         close,
-        volume,
+        volume: typeof volume === "number" && !isNaN(volume) ? volume : 0,
       };
     })
     .filter((item): item is CandleHistory => item !== null);
+
+  // Pastikan urutan kronologis terlama -> terbaru (Oldest -> Newest)
+  history.sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
 
   return { meta, ticker, interval, history };
 }

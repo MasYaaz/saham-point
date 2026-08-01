@@ -1,6 +1,13 @@
 import db from "../db";
 import type { EmitenDbRow, GorenganSuspect } from "../types";
+import { safeLog } from "../utils/safeLog";
+import { promisePool } from "../utils/mcp/promisePool"; // Dipindah ke helper terpisah
+import { getActiveUmaStocks } from "./idxServices/getUMAService";
 import { fetchYahooCandles } from "./yahooService";
+
+// ============================================================================
+// TYPES & INTERFACES
+// ============================================================================
 
 export interface ScreenerUndervaluedParams {
   maxPbv?: number;
@@ -8,6 +15,40 @@ export interface ScreenerUndervaluedParams {
   maxDer?: number;
   limit?: number;
 }
+
+export interface ScreenerMarketCapParams {
+  minMarketCap?: number;
+  maxMarketCap?: number | null;
+  sort?: "asc" | "desc" | string;
+  limit?: number;
+}
+
+export interface ScreenerTechnicalParams {
+  strategy?: "breakout" | "reversal" | "volatile" | string;
+  limit?: number;
+}
+
+export interface ScreenerDividendParams {
+  minYield?: number;
+  limit?: number;
+}
+
+interface CandidateStock {
+  code: string;
+  name: string;
+  sector: string;
+  last_price: number;
+  market_cap: number | null;
+  per: number | null;
+  pbv: number | null;
+  roe: number | null;
+  isUma: boolean;
+  umaTitle?: string;
+}
+
+// ============================================================================
+// LOCAL DATABASE SCREENERS (FAST / SYNCHRONOUS)
+// ============================================================================
 
 export function getUndervaluedStocks({
   maxPbv = 1.5,
@@ -37,13 +78,6 @@ export function getUndervaluedStocks({
     count: result.length,
     data: result,
   };
-}
-
-export interface ScreenerMarketCapParams {
-  minMarketCap?: number;
-  maxMarketCap?: number | null;
-  sort?: "asc" | "desc" | string;
-  limit?: number;
 }
 
 export function getMarketCapStocks({
@@ -82,11 +116,6 @@ export function getMarketCapStocks({
     count: result.length,
     data: result,
   };
-}
-
-export interface ScreenerTechnicalParams {
-  strategy?: "breakout" | "reversal" | "volatile" | string;
-  limit?: number;
 }
 
 export function getTechnicalScreener({
@@ -136,11 +165,6 @@ export function getTechnicalScreener({
     count: formattedResult.length,
     data: formattedResult,
   };
-}
-
-export interface ScreenerDividendParams {
-  minYield?: number;
-  limit?: number;
 }
 
 export function getDividendHunters({
@@ -207,11 +231,10 @@ export function getRankedStocks(
   sortBy: string = "market_cap",
   limit: number = 25,
 ) {
-  let queryStr = `SELECT code, name, sector, last_price, market_cap, pbv, per, dividend_yield FROM emiten `;
-  queryStr +=
+  const queryStr =
     sortBy === "dividend_yield"
-      ? ` ORDER BY dividend_yield DESC LIMIT ? `
-      : ` ORDER BY market_cap DESC LIMIT ? `;
+      ? `SELECT code, name, sector, last_price, market_cap, pbv, per, dividend_yield FROM emiten ORDER BY dividend_yield DESC LIMIT ?`
+      : `SELECT code, name, sector, last_price, market_cap, pbv, per, dividend_yield FROM emiten ORDER BY market_cap DESC LIMIT ?`;
 
   const result = db.query(queryStr).all(limit) as EmitenDbRow[];
 
@@ -222,166 +245,231 @@ export function getRankedStocks(
   };
 }
 
+// ============================================================================
+// HYBRID / HEAVY ASYNC SCREENERS (EXTERNAL API + CANDLE ANALYSIS)
+// ============================================================================
+
+/**
+ * Mengambil daftar saham terindikasi spekulatif (gorengan) dengan menjadikan
+ * pengumuman UMA resmi BEI sebagai patokan utama kandidat, diperkaya data fundamental dan candle.
+ */
 export async function getGorenganStocks(
   limit: number = 25,
 ): Promise<GorenganSuspect[]> {
-  // 1. TAHAP 1: Filter awal kandidat dari DB SQLite
-  const rows = db
-    .query(
-      `SELECT
-         e.code,
-         e.name,
-         e.sector,
-         e.last_price,
-         e.market_cap,
-         e.per,
-         e.pbv,
-         e.roe
-       FROM emiten e
-       WHERE (e.last_price < 1000 OR e.market_cap < 1000000000000)
-         AND e.last_price IS NOT NULL AND e.last_price > 0
-         AND e.market_cap IS NOT NULL AND e.market_cap > 0`,
-    )
-    .all() as Array<any>;
+  let candidateList: CandidateStock[] = [];
 
-  const candidates: GorenganSuspect[] = [];
+  // 1. TAHAP 1: Ambil kandidat utama dari UMA Service IDX (30 hari terakhir)
+  try {
+    const umaList = await getActiveUmaStocks(30);
 
-  // Hitung Skor Fundamental Awal
-  for (const row of rows) {
-    // Validasi Ekstra: Pastikan harga dan market cap valid
-    if (!row.last_price || row.last_price <= 0) continue;
-    if (!row.market_cap || row.market_cap <= 0) continue;
+    if (umaList && umaList.length > 0) {
+      for (const umaItem of umaList) {
+        const dbRow = db
+          .query(
+            `SELECT code, name, sector, last_price, market_cap, per, pbv, roe
+             FROM emiten WHERE code = ?`,
+          )
+          .get(umaItem.code) as EmitenDbRow | null;
 
-    const reasons: string[] = [];
-    let score = 0;
-
-    if (row.last_price < 200) {
-      score += 2;
-      reasons.push(`Penny stock (Rp ${row.last_price})`);
+        candidateList.push({
+          code: umaItem.code,
+          name: dbRow?.name || umaItem.name,
+          sector: dbRow?.sector || "N/A",
+          last_price: dbRow?.last_price || 0,
+          market_cap: dbRow?.market_cap || null,
+          per: dbRow?.per || null,
+          pbv: dbRow?.pbv || null,
+          roe: dbRow?.roe || null,
+          isUma: true,
+          umaTitle: umaItem.title,
+        });
+      }
     }
-
-    if (row.market_cap < 500_000_000_000) {
-      score += 2;
-      reasons.push(
-        `Market Cap mikro (Rp ${(row.market_cap / 1e9).toFixed(1)}M)`,
-      );
-    }
-
-    if (row.pbv !== null && row.roe !== null && row.pbv > 2.5 && row.roe < 3) {
-      score += 3;
-      reasons.push(
-        `PBV mahal (${row.pbv.toFixed(2)}x) tapi ROE rendah (${row.roe.toFixed(2)}%)`,
-      );
-    }
-
-    if (row.per !== null && (row.per < 0 || row.per > 80)) {
-      score += 2;
-      reasons.push(`PER Anomali/Rugi (${row.per.toFixed(1)}x)`);
-    }
-
-    if (score >= 2) {
-      candidates.push({
-        code: row.code,
-        name: row.name,
-        sector: row.sector,
-        last_price: row.last_price,
-        market_cap: row.market_cap,
-        gorengan_score: score,
-        reasons,
-        per: row.per,
-        pbv: row.pbv,
-        roe: row.roe,
-      });
-    }
+  } catch (error) {
+    safeLog(
+      "warn",
+      `[GorenganScreener] Gagal mengambil data UMA IDX, beralih ke database lokal. Error: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 
-  // Batasi top 30 kandidat teratas untuk diperiksa candlenya
-  const topCandidates = candidates
-    .sort((a, b) => b.gorengan_score - a.gorengan_score)
-    .slice(0, 30);
+  // Fallback: Jika UMA Service tidak mengembalikan data, gunakan database lokal
+  if (candidateList.length === 0) {
+    const rows = db
+      .query(
+        `SELECT e.code, e.name, e.sector, e.last_price, e.market_cap, e.per, e.pbv, e.roe
+         FROM emiten e
+         WHERE (e.last_price < 1000 OR e.market_cap < 1000000000000)
+           AND e.last_price IS NOT NULL AND e.last_price > 0
+           AND e.market_cap IS NOT NULL AND e.market_cap > 0`,
+      )
+      .all() as EmitenDbRow[];
 
-  // 2. TAHAP 2: Analisis Perilaku Candle (Eliminasi jika candle kosong/nol)
-  const candlePromises = topCandidates.map(
+    candidateList = rows.map((r) => ({
+      code: r.code,
+      name: r.name,
+      sector: r.sector,
+      last_price: r.last_price,
+      market_cap: r.market_cap,
+      per: r.per,
+      pbv: r.pbv,
+      roe: r.roe,
+      isUma: false,
+    }));
+  }
+
+  const maxCandidatesToCheck = Math.max(limit * 2, 30);
+  const topCandidates = candidateList.slice(0, maxCandidatesToCheck);
+
+  // 2. TAHAP 2: Analisis Perilaku Candle & Perhitungan Skor Spekulatif
+  const evaluatedStocks = await promisePool(
+    topCandidates,
+    5,
     async (stock): Promise<GorenganSuspect | null> => {
-      const candleRes = await fetchYahooCandles(stock.code, "1mo");
+      try {
+        const candleRes = await fetchYahooCandles(stock.code, "3mo");
+        if (!candleRes || !candleRes.history || candleRes.history.length < 20) {
+          return null;
+        }
 
-      // 🛑 ELIMINASI: Jika data candle tidak ditemukan atau < 5 baris
-      if (!candleRes || !candleRes.history || candleRes.history.length < 5) {
+        const { history } = candleRes;
+        const latestCandle = history[history.length - 1];
+        const last20Candles = history.slice(-20);
+
+        if (!latestCandle || !latestCandle.close || latestCandle.close <= 0) {
+          return null;
+        }
+
+        const realTimePrice = latestCandle.close;
+        const totalVolume20 = last20Candles.reduce(
+          (acc, c) => acc + (c.volume || 0),
+          0,
+        );
+        const avgVolume20 = totalVolume20 / last20Candles.length;
+
+        if (
+          !avgVolume20 ||
+          avgVolume20 <= 0 ||
+          !latestCandle.volume ||
+          latestCandle.volume <= 0
+        ) {
+          return null;
+        }
+
+        const volumeSpikeRatio = latestCandle.volume / avgVolume20;
+
+        const candle5DaysAgo = history[Math.max(0, history.length - 5)];
+        const price5dReturn =
+          candle5DaysAgo && candle5DaysAgo.close > 0
+            ? ((realTimePrice - candle5DaysAgo.close) / candle5DaysAgo.close) *
+              100
+            : 0;
+
+        const last5Candles = history.slice(-5);
+        const greenCandlesCount = last5Candles.filter(
+          (c) => c.close > c.open,
+        ).length;
+
+        let score = 0;
+        const reasons: string[] = [];
+
+        // Evaluasi Kriteria & Pembobotan Skor
+        if (stock.isUma) {
+          score += 5;
+          reasons.push(
+            `Terdaftar dalam pengumuman resmi Unusual Market Activity BEI (${stock.umaTitle || "Pengumuman UMA"})`,
+          );
+        }
+
+        if (realTimePrice < 200) {
+          score += 2;
+          reasons.push(
+            `Kategori saham lapis bawah dengan harga nominal rendah (Rp ${realTimePrice})`,
+          );
+        }
+
+        if (stock.market_cap && stock.market_cap < 500_000_000_000) {
+          score += 2;
+          reasons.push(
+            `Kapitalisasi pasar mikro sebesar Rp ${(stock.market_cap / 1e9).toFixed(1)} miliar`,
+          );
+        }
+
+        if (
+          stock.pbv !== null &&
+          stock.roe !== null &&
+          stock.pbv > 2.5 &&
+          stock.roe < 3
+        ) {
+          score += 3;
+          reasons.push(
+            `Valuasi PBV tinggi (${stock.pbv.toFixed(2)}x) tidak sebanding dengan ROE rendah (${stock.roe.toFixed(2)}%)`,
+          );
+        }
+
+        if (stock.per !== null && (stock.per < 0 || stock.per > 60)) {
+          score += 2;
+          reasons.push(
+            `Rasio PER anomali atau mencatatkan kerugian (${stock.per.toFixed(1)}x)`,
+          );
+        }
+
+        if (volumeSpikeRatio >= 3.0) {
+          score += 4;
+          reasons.push(
+            `Lonjakan volume transaksi mendadak sebesar ${volumeSpikeRatio.toFixed(1)}x dari rata-rata 20 hari`,
+          );
+        } else if (volumeSpikeRatio >= 1.8) {
+          score += 2;
+          reasons.push(
+            `Peningkatan volume transaksi harian mencapai ${volumeSpikeRatio.toFixed(1)}x rata-rata 20 hari`,
+          );
+        }
+
+        if (price5dReturn >= 20.0) {
+          score += 4;
+          reasons.push(
+            `Kenaikan harga ekstrim sebesar +${price5dReturn.toFixed(1)}% dalam 5 hari terakhir`,
+          );
+        } else if (price5dReturn >= 10.0) {
+          score += 2;
+          reasons.push(
+            `Kenaikan harga signifikan sebesar +${price5dReturn.toFixed(1)}% dalam 5 hari terakhir`,
+          );
+        }
+
+        if (greenCandlesCount >= 4 && price5dReturn >= 10) {
+          score += 2;
+          reasons.push(
+            `Pola pergerakan harga konsisten naik (${greenCandlesCount} dari 5 hari terakhir ditutup menguat)`,
+          );
+        }
+
+        return {
+          code: stock.code,
+          name: stock.name,
+          sector: stock.sector,
+          last_price: realTimePrice,
+          market_cap: stock.market_cap,
+          gorengan_score: score,
+          reasons,
+          per: stock.per,
+          pbv: stock.pbv,
+          roe: stock.roe,
+          candle_signals: {
+            volume_spike_ratio: parseFloat(volumeSpikeRatio.toFixed(2)),
+            recent_5d_return_pct: parseFloat(price5dReturn.toFixed(2)),
+            consecutive_green_days: greenCandlesCount,
+          },
+        };
+      } catch (err) {
         return null;
       }
-
-      const { history } = candleRes;
-      const latestCandle = history[history.length - 1];
-      const last20Candles = history.slice(-20);
-
-      // 🛑 ELIMINASI: Jika candle terbaru tidak valid / harga close <= 0
-      if (!latestCandle || !latestCandle.close || latestCandle.close <= 0) {
-        return null;
-      }
-
-      // Hitung Rata-Rata Volume 20 Hari
-      const avgVolume20 =
-        last20Candles.reduce((acc, c) => acc + c.volume, 0) /
-        last20Candles.length;
-
-      // 🛑 ELIMINASI: Jika tidak ada aktivitas transaksi / volume 0 (saham mati)
-      if (!avgVolume20 || avgVolume20 <= 0 || latestCandle.volume <= 0) {
-        return null;
-      }
-
-      // Lonjakan Volume Hari Ini vs Rata-Rata 20 Hari
-      const volumeSpikeRatio = latestCandle.volume / avgVolume20;
-
-      // Kenaikan Harga 5 Hari Terakhir
-      const candle5DaysAgo = history[Math.max(0, history.length - 5)];
-      const price5dReturn =
-        candle5DaysAgo && candle5DaysAgo.close > 0
-          ? ((latestCandle.close - candle5DaysAgo.close) /
-              candle5DaysAgo.close) *
-            100
-          : 0;
-
-      let extraScore = 0;
-      const additionalReasons: string[] = [];
-
-      // Indikator 1: Volume Spike
-      if (volumeSpikeRatio >= 3.0) {
-        extraScore += 4;
-        additionalReasons.push(
-          `🚨 VOLUME SPIKE MENDADAK: ${volumeSpikeRatio.toFixed(1)}x dari rata-rata 20 hari`,
-        );
-      } else if (volumeSpikeRatio >= 1.8) {
-        extraScore += 2;
-        additionalReasons.push(
-          `Volume transaksi meningkat (${volumeSpikeRatio.toFixed(1)}x rata-rata)`,
-        );
-      }
-
-      // Indikator 2: Price Pump
-      if (price5dReturn >= 15.0) {
-        extraScore += 3;
-        additionalReasons.push(
-          `🚀 PUMP HARGA: Naik +${price5dReturn.toFixed(1)}% dalam 5 hari terakhir`,
-        );
-      }
-
-      return {
-        ...stock,
-        gorengan_score: stock.gorengan_score + extraScore,
-        reasons: [...stock.reasons, ...additionalReasons],
-        candle_signals: {
-          volume_spike_ratio: parseFloat(volumeSpikeRatio.toFixed(2)),
-          recent_5d_return_pct: parseFloat(price5dReturn.toFixed(2)),
-        },
-      };
     },
   );
 
-  const evaluatedStocks = await Promise.all(candlePromises);
-
-  // 🧹 Filter & Hapus seluruh item bernilai null
   return evaluatedStocks
     .filter((stock): stock is GorenganSuspect => stock !== null)
-    .sort((a, b) => b.gorengan_score - a.gorengan_score)
-    .slice(0, limit);
+    .sort((a, b) => b.gorengan_score - a.gorengan_score);
 }

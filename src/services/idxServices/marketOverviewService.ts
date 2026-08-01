@@ -1,4 +1,4 @@
-import BaseClient from "../client/idxClient";
+import IdxClient from "../../client/idxClient";
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -35,7 +35,7 @@ export interface MarketOverviewResponse {
 // SERVICE IMPLEMENTATION
 // ============================================================================
 
-export class MarketOverviewService extends BaseClient {
+export class MarketOverviewService extends IdxClient {
   /**
    * Internal helper untuk mengambil ringkasan pasar 1 tanggal spesifik.
    */

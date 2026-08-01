@@ -2,7 +2,7 @@
 // TYPES & INTERFACES (Sesuai JSON Asli IDX)
 // ============================================================================
 
-import BaseClient from "../client/idxClient";
+import IdxClient from "../../client/idxClient";
 
 export interface CorporateActionItem {
   code: string;
@@ -41,7 +41,7 @@ interface IdxIssuedHistoryItem {
 // SERVICE IMPLEMENTATION
 // ============================================================================
 
-export class CorporateActionService extends BaseClient {
+export class CorporateActionService extends IdxClient {
   /**
    * Mengambil riwayat tindakan korporasi (Corporate Actions) emiten dari BEI.
    */

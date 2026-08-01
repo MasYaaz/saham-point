@@ -1,4 +1,4 @@
-import { getCorporateActions } from "../src/services/corporateActionService";
+import { getCorporateActions } from "../src/services/idxServices/corporateActionService";
 
 export async function testCorporateActions(ticker = "BBCA") {
   console.log("--------------------------------------------------");

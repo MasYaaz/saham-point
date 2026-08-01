@@ -3,7 +3,7 @@ import {
   type MarketOverviewResponse,
   type IndexPerformance,
   type StockMoverItem,
-} from "../src/services/marketOverviewService";
+} from "../src/services/idxServices/marketOverviewService";
 import { getWeekdaysInRange } from "../src/utils/mcp/getWeeksDay";
 
 /**

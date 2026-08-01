@@ -1,4 +1,4 @@
-import { getForeignFlow } from "../src/services/foreignFlowService";
+import { getForeignFlow } from "../src/services/idxServices/foreignFlowService";
 import { getWeekdaysInRange } from "../src/utils/mcp/getWeeksDay";
 
 export async function testForeignFlow(ticker = "BBCA") {

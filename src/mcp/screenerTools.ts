@@ -164,20 +164,29 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_gorengan",
     {
       description:
-        "Screener Deteksi Saham Gorengan / Spekulatif: Menyaring emiten lapis 3 (micro cap/penny stock) dengan anomali fundamental & sinyal candle OHLCV terkini (Volume Spike & Pump Harga). Otomatis mengeliminasi saham mati/tanpa data.",
+        "Screener Deteksi Saham Gorengan / Spekulatif: Menyaring emiten spekulatif berbasis pengumuman resmi UMA (Unusual Market Activity) BEI terkini, diperkaya analisis anomali fundamental (micro cap, valuation trap, PER anomali) dan sinyal candle OHLCV real-time (Volume Spike & Price Pump).\n\n" +
+        "PETUNJUK PENYAJIAN HASIL UNTUK LLM:\n" +
+        "1. Buat ringkasan murni berdasarkan array 'reasons' dan 'candle_signals' yang tersedia pada setiap item data.\n" +
+        "2. DILARANG keras menambah, mengasumsikan, atau meramal indikator teknikal/fundamental di luar data JSON yang diberikan (seperti MACD, RSI, Moving Average, rumor dividen, aset, dll).",
       inputSchema: {
         limit: z
           .number()
           .optional()
-          .default(25)
-          .describe("Jumlah maksimal saham terdeteksi yang ditampilkan"),
+          .describe(
+            "Jumlah maksimal emiten terdeteksi yang ingin ditampilkan (opsional, jika kosong akan menampilkan seluruh emiten UMA terdeteksi)",
+          ),
       },
     },
     async ({ limit }) => {
       const { getGorenganStocks } = await import("../services/screenerService");
 
-      // Menggunakan await karena fungsi ini bersifat async (fetching data candle)
-      const result = await getGorenganStocks(limit);
+      // Mengambil seluruh data emiten UMA hasil analisis
+      let result = await getGorenganStocks();
+
+      // Slicing opsional jika caller menentukan parameter limit
+      if (limit && limit > 0) {
+        result = result.slice(0, limit);
+      }
 
       return {
         content: [
@@ -185,6 +194,9 @@ export function registerScreenerTools(mcpServer: McpServer) {
             type: "text",
             text: JSON.stringify(
               {
+                status: "success",
+                usage_guidelines:
+                  "Sajikan analisis secara faktual berdasarkan field 'reasons' dan 'candle_signals'. Dilarang mengasumsikan indikator eksternal seperti MACD/RSI.",
                 total: result.length,
                 data: result,
               },

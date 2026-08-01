@@ -2,7 +2,7 @@ import { fetchYahooCandles } from "./yahooService";
 import { computeTechnicalIndicators } from "../utils/mcp/technicalIndicator";
 
 /**
- * Mengambil ringkasan indikator teknikal saja (tanpa array candlestick OHLCV)
+ * Mengambil ringkasan indikator teknikal beserta status evaluasinya
  */
 export async function getTechnicalIndicators(
   code: string,

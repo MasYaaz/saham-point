@@ -161,7 +161,8 @@ export function registerBandarmologyTools(mcpServer: McpServer) {
       },
     },
     async ({ code, startDate, endDate }) => {
-      const { getForeignFlow } = await import("../services/foreignFlowService");
+      const { getForeignFlow } =
+        await import("../services/idxServices/foreignFlowService");
       const { getWeekdaysInRange } = await import("../utils/mcp/getWeeksDay");
 
       const now = new Date();
@@ -267,7 +268,7 @@ export function registerBandarmologyTools(mcpServer: McpServer) {
     },
     async ({ code }) => {
       const { getCorporateActions } =
-        await import("../services/corporateActionService");
+        await import("../services/idxServices/corporateActionService");
 
       try {
         const result = await getCorporateActions(code);
@@ -333,7 +334,7 @@ export function registerBandarmologyTools(mcpServer: McpServer) {
     },
     async ({ date }) => {
       const { getMarketOverview } =
-        await import("../services/marketOverviewService");
+        await import("../services/idxServices/marketOverviewService");
 
       try {
         const dateParam = date ? date.replace(/-/g, "") : undefined;

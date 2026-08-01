@@ -2,7 +2,7 @@
 // TYPES & INTERFACES
 // ============================================================================
 
-import BaseClient from "../client/idxClient";
+import IdxClient from "../../client/idxClient";
 
 export interface DailyForeignFlow {
   date: string; // YYYY-MM-DD
@@ -34,7 +34,7 @@ export interface ForeignFlowResponse {
 // SERVICE IMPLEMENTATION
 // ============================================================================
 
-export class ForeignFlowService extends BaseClient {
+export class ForeignFlowService extends IdxClient {
   /**
    * Mengambil dan mengkalkulasi data Foreign Flow (Net Buy/Sell Asing) saham harian dari BEI.
    */

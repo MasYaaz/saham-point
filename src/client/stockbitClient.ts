@@ -1,6 +1,6 @@
 import BaseClient from "./baseClient";
 import { safeLog } from "../utils/safeLog";
-import { refreshStockbitToken } from "../auth/httpTokenRefresher";
+import { refreshStockbitToken } from "../auth/stockbitTokenRefresher";
 
 export interface StockbitRawResponse<T = any> {
   message?: string;

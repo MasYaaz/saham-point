@@ -155,7 +155,8 @@ export interface GorenganSuspect {
   pbv: number | null;
   roe: number | null;
   candle_signals?: {
-    volume_spike_ratio: number; // Misal 3.5x dari rata-rata 20 hari
-    recent_5d_return_pct: number; // Kenaikan harga 5 hari terakhir (%)
+    volume_spike_ratio: number; // Rasio volume terhadap rata-rata 20 hari
+    recent_5d_return_pct: number; // Persentase kenaikan harga 5 hari terakhir
+    consecutive_green_days?: number; // Jumlah penutupan harga hijau beruntun
   };
 }

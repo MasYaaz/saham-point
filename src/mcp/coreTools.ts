@@ -89,7 +89,7 @@ export function registerCoreTools(mcpServer: McpServer) {
     "get_technical_indicators",
     {
       description:
-        "Mengambil rangkuman murni 16+ indikator teknikal saham (RSI, MACD, Moving Averages, Bollinger, ATR, ADX, Ichimoku, Volume).",
+        "Mengambil rangkuman 16+ indikator teknikal saham (RSI, MACD, Moving Averages, Bollinger, ATR, ADX, Ichimoku, Volume) lengkap dengan evaluasi status grounded (oversold/overbought/neutral) dan ringkasan sinyal (summary_signals). WAJIB gunakan field status dan summary_signals yang dikembalikan tanpa menghitung atau menafsirkan ambang batas angka secara mandiri.",
       inputSchema: {
         code: z.string().describe("Kode ticker saham, misal: BBRI"),
         range: z
@@ -103,12 +103,18 @@ export function registerCoreTools(mcpServer: McpServer) {
       const { getTechnicalIndicators } =
         await import("../services/technicalService");
       const result = await getTechnicalIndicators(code, range);
-      if (!result)
+
+      if (!result) {
         return {
           content: [
-            { type: "text", text: `Data teknikal ${code} tidak ditemukan` },
+            {
+              type: "text",
+              text: `Data teknikal ${code.toUpperCase()} tidak ditemukan`,
+            },
           ],
         };
+      }
+
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
