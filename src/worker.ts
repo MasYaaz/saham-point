@@ -1,67 +1,68 @@
-#!/usr/bin/env bun
 import cron from "node-cron";
 import { safeLog } from "./utils/safeLog";
-import { syncMarketData } from "./cli/scraper/syncMarketData";
+import {
+  syncMarketData,
+  syncMarketPrice,
+} from "./services/scraperService/syncMarketData";
 
-/** Flag untuk mencegah eksekusi bertumpuk jika sinkronisasi sebelumnya belum selesai */
 let isSyncing = false;
 
-/**
- * Memulai scheduler latar belakang untuk sinkronisasi data bursa saham.
- * Seluruh jadwal dikunci menggunakan zona waktu Asia/Jakarta (WIB).
- */
-function initBackgroundWorker(): void {
+async function executeSync(
+  syncFn: () => Promise<string>,
+  label: string,
+): Promise<void> {
+  if (isSyncing) {
+    safeLog(
+      "warn",
+      `[Worker] Sinkronisasi (${label}) dilewati karena proses lain masih berjalan.`,
+    );
+    return;
+  }
+
+  isSyncing = true;
+  try {
+    const status = await syncFn();
+    safeLog("info", `[Sync Success] ${label}: ${status}`);
+  } catch (error) {
+    safeLog(
+      "error",
+      `[Sync Error] Gagal pada ${label}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    isSyncing = false;
+  }
+}
+
+export function startMarketWorker(): void {
   safeLog("info", "[Worker] Scheduler bursa saham aktif (Asia/Jakarta).");
 
+  // Jalankan sinkronisasi awal saat worker pertama kali dipanggil
+  executeSync(syncMarketData, "Initial Startup Sync");
+
   /**
-   * Scheduler Sinkronisasi Harga Pasar Real-Time
-   * Dijalankan setiap 1 menit pada hari kerja (Senin-Jumat) pukul 09:00 - 16:59 WIB.
+   * Scheduler Sinkronisasi Harga Pasar Real-Time (Setiap 1 menit, Senin-Jumat, 09:00 - 16:59 WIB)
    */
   const task = cron.schedule(
     "*/1 9-16 * * 1-5",
     async () => {
-      if (isSyncing) {
-        safeLog(
-          "warn",
-          "[Worker] Sinkronisasi sebelumnya masih berjalan, melewati siklus ini.",
-        );
-        return;
-      }
-
-      isSyncing = true;
-
-      try {
-        const logStatus = await syncMarketData();
-        safeLog("info", logStatus);
-      } catch (error) {
-        safeLog(
-          "error",
-          `[Worker Error] Gagal mengeksekusi sinkronisasi harga: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      } finally {
-        isSyncing = false;
-      }
+      await executeSync(syncMarketPrice, "Cron Market Price Sync");
     },
     {
       timezone: "Asia/Jakarta",
     },
   );
 
-  // Handling penghentian proses secara bersih (Graceful Shutdown)
+  // Graceful Shutdown Handler
   const handleShutdown = (signal: string) => {
     safeLog(
       "info",
       `[Worker] Menerima sinyal ${signal}. Mematikan scheduler...`,
     );
     task.stop();
-    process.exit(0);
   };
 
-  process.on("SIGINT", () => handleShutdown("SIGINT"));
-  process.on("SIGTERM", () => handleShutdown("SIGTERM"));
+  process.once("SIGINT", () => handleShutdown("SIGINT"));
+  process.once("SIGTERM", () => handleShutdown("SIGTERM"));
 }
-
-// Jalankan worker secara langsung
-initBackgroundWorker();

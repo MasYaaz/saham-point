@@ -1,6 +1,6 @@
-import db from "../db";
-import { tradingViewClient } from "../client/tradingViewClient";
-import type { EmitenItem } from "../types";
+import db from "../../db";
+import { tradingViewClient } from "../../client/tradingViewClient";
+import type { EmitenItem } from "../../types";
 
 // ============================================================================
 // CONFIGURATION & COLUMNS

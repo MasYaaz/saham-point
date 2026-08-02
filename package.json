@@ -14,7 +14,7 @@
     "cli": "bun run src/cli.ts",
     "worker": "bun run src/worker.ts",
     "worker:dev": "bun run --watch src/worker.ts",
-    "build:tar": "rm -rf dist saham-point.tar,gz && mkdir -p dist && bun build ./src/mcp.ts --outfile ./dist/saham-point-mcp --target bun --external playwright-core --external chromium-bidi && bun build ./src/cli.ts --outfile ./dist/saham-point-cli --target bun --external playwright-core --external chromium-bidi && bun build ./src/worker.ts --outfile ./dist/saham-point-worker --target bun --external playwright-core --external chromium-bidi && chmod +x ./dist/* && tar -czvf saham-point.tar.gz -C dist ."
+    "build:tar": "rm -rf dist saham-point.tar,gz && mkdir -p dist && bun build ./src/mcp.ts --outfile ./dist/saham-point-mcp --target bun && chmod +x ./dist/* && tar -czvf saham-point.tar.gz -C dist ."
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
@@ -24,7 +24,6 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "cheerio": "^1.2.0",
     "node-cron": "^4.6.0",
-    "playwright": "^1.62.1",
     "rss-parser": "^3.13.0",
     "technicalindicators": "^3.1.0"
   }

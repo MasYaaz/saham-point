@@ -1,4 +1,4 @@
-import { fetchYahooCandles } from "../src/services/yahooService"; // Sesuaikan path file service-mu
+import { fetchYahooCandles } from "../src/services/yahooServices/fetchCandle"; // Sesuaikan path file service-mu
 import { safeLog } from "../src/utils/safeLog";
 
 async function runYahooCandlesTester() {

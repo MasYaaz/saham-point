@@ -10,32 +10,26 @@ import { safeLog } from "../utils/safeLog";
  * Mendapatkan lokasi folder 'data' secara dinamis
  */
 function resolveDataDir(): string {
-  const currentSourceDir = import.meta.dir;
+  const entryPoint = process.argv[1] || "";
 
-  if (
-    currentSourceDir &&
-    !currentSourceDir.startsWith("$bunfs") &&
-    !currentSourceDir.includes("#bun")
-  ) {
-    const projectRoot = path.resolve(currentSourceDir, "../..");
+  // 1. Cek apakah dijalankan langsung sebagai script TS/JS (Development)
+  const isDevelopment =
+    entryPoint.endsWith(".ts") || entryPoint.endsWith(".js");
+
+  if (isDevelopment && import.meta.dir) {
+    // Mundur dari src/db ke root proyek
+    const projectRoot = path.resolve(import.meta.dir, "../..");
     return path.join(projectRoot, "data");
   }
 
-  const entryPath = process.argv[1] || process.execPath;
-  let baseDir = process.cwd();
-
+  // 2. Jika dijalankan sebagai Binary Standalone (saham-point-cli)
   try {
-    const realPath = fs.realpathSync(entryPath);
-    baseDir = path.dirname(realPath);
-
-    if (["src", "test", "scripts"].includes(path.basename(baseDir))) {
-      baseDir = path.resolve(baseDir, "..");
-    }
+    const binaryPath = fs.realpathSync(entryPoint || process.execPath);
+    const binaryDir = path.dirname(binaryPath);
+    return path.join(binaryDir, "data");
   } catch {
-    baseDir = process.cwd();
+    return path.join(process.cwd(), "data");
   }
-
-  return path.join(baseDir, "data");
 }
 
 const dataDir = resolveDataDir();

@@ -6,14 +6,15 @@ import { VERSION } from "./config";
 import { registerCoreTools } from "./mcp/coreTools";
 import { registerBandarmologyTools } from "./mcp/bandarmologyTools";
 import { registerScreenerTools } from "./mcp/screenerTools";
+import { safeLog } from "./utils/safeLog";
+import { registerStockTools } from "./mcp/stockTools";
 
 /* ============================================================================
  * ENVIRONMENT INITIALIZATION (Native Bun - Zero Dependency)
  * Membaca .env berdasarkan lokasi file index.ts menggunakan Bun.file
  * ============================================================================ */
 
-async function initEnv() {
-  // Sesuaikan lokasi .env (misal jika index.ts ada di /src, mundur 1 folder ke root)
+async function initEnv(): Promise<void> {
   const envPath = path.resolve(import.meta.dir, "../.env");
   const file = Bun.file(envPath);
 
@@ -42,13 +43,14 @@ await initEnv();
  * MCP SERVER FACTORY ENGINE
  * ============================================================================ */
 
-export function createMcpServer() {
+export function createMcpServer(): McpServer {
   const mcpServer = new McpServer({
     name: "saham-point-mcp",
     version: VERSION,
   });
 
   registerCoreTools(mcpServer);
+  registerStockTools(mcpServer);
   registerBandarmologyTools(mcpServer);
   registerScreenerTools(mcpServer);
 
@@ -59,9 +61,11 @@ export function createMcpServer() {
  * HELPER UNTUK TAMPILAN CLI TUI
  * ============================================================================ */
 
-export function getMcpToolsList() {
+export function getMcpToolsList(): Array<{
+  name: string;
+  description: string;
+}> {
   const mcpServer = createMcpServer();
-
   const registeredTools =
     (mcpServer as any)._registeredTools || (mcpServer as any)._tools || {};
 
@@ -75,12 +79,27 @@ export function getMcpToolsList() {
  * EXECUTION ENGINE & RUNTIME SERVING
  * ============================================================================ */
 
-async function startMcpServer() {
+async function startMcpServer(): Promise<void> {
   const server = createMcpServer();
   const transport = new StdioServerTransport();
 
+  // Handshake MCP diselesaikan secara murni (Super Cepat!)
   await server.connect(transport);
   console.error(`[MCP] Saham Point MCP Server v${VERSION} running on stdio`);
+
+  // Jalankan worker di thread/CPU core terpisah secara multithreading
+  setTimeout(() => {
+    try {
+      const workerUrl = new URL("./worker.ts", import.meta.url);
+      const worker = new Worker(workerUrl);
+
+      worker.onerror = (err) => {
+        safeLog("error", `[Worker Thread Error] ${err}`);
+      };
+    } catch (err) {
+      safeLog("error", `[MCP Worker] Gagal memicu worker thread: ${err}`);
+    }
+  }, 0);
 }
 
 if (

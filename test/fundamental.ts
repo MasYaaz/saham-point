@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { scrapeFundamentalTradingView } from "../src/cli/scraper/helper/scrapeStockHistories";
+import { scrapeFundamentalTradingView } from "../src/services/scraperService/helper/scrapeStockHistories";
 import {
   createBatchContext,
   getOrInitBrowser,

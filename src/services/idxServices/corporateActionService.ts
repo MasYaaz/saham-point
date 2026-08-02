@@ -1,13 +1,32 @@
+import IdxClient from "../../client/idxClient";
+
 // ============================================================================
-// TYPES & INTERFACES (Sesuai JSON Asli IDX)
+// TYPES & INTERFACES (Sesuai Kategori Lengkap IDX)
 // ============================================================================
 
-import IdxClient from "../../client/idxClient";
+export type ActionType =
+  | "DIVIDEND"
+  | "STOCK_SPLIT"
+  | "REVERSE_STOCK"
+  | "RIGHTS_ISSUE"
+  | "TANPA_HMETD"
+  | "ESOP_MSOP"
+  | "BONUS"
+  | "IPO"
+  | "LISTING"
+  | "DELISTING"
+  | "WARRANT"
+  | "MERGER"
+  | "CAPITAL_REDUCTION"
+  | "CONVERSION"
+  | "BUYBACK"
+  | "PRIVATE_PLACEMENT"
+  | "RUPS"
+  | "OTHER";
 
 export interface CorporateActionItem {
   code: string;
-  actionType:
-    "DIVIDEND" | "STOCK_SPLIT" | "RIGHTS_ISSUE" | "RUPS" | "BONUS" | "OTHER";
+  actionType: ActionType;
   title: string;
   cumDate?: string;
   exDate?: string;
@@ -23,6 +42,11 @@ export interface CorporateActionResponse {
   dividends: CorporateActionItem[];
   stockSplits: CorporateActionItem[];
   rightsIssues: CorporateActionItem[];
+  esopMsop: CorporateActionItem[];
+  bonuses: CorporateActionItem[];
+  warrants: CorporateActionItem[];
+  buybacks: CorporateActionItem[];
+  privatePlacements: CorporateActionItem[];
   rups: CorporateActionItem[];
   otherActions: CorporateActionItem[];
 }
@@ -32,7 +56,7 @@ interface IdxIssuedHistoryItem {
   id: number;
   KodeEmiten: string;
   TanggalPencatatan: string; // ISO Date: "2026-07-30T00:00:00"
-  JenisTindakan: string; // e.g. "waran", "Dividen Saham", "hmetd", "delist"
+  JenisTindakan: string; // e.g. "waran", "Dividen Saham", "tanpaHmetd", dll.
   JumlahSaham: number;
   JumlahSahamSetelahTindakan: number;
 }
@@ -43,7 +67,7 @@ interface IdxIssuedHistoryItem {
 
 export class CorporateActionService extends IdxClient {
   /**
-   * Mengambil riwayat tindakan korporasi (Corporate Actions) emiten dari BEI.
+   * Mengambil riwayat tindakan korporasi (Corporate Actions) emiten secara lengkap dari BEI.
    */
   async getCorporateActions(code: string): Promise<CorporateActionResponse> {
     const cleanCode = code.trim().toUpperCase();
@@ -62,11 +86,19 @@ export class CorporateActionService extends IdxClient {
     const dividends: CorporateActionItem[] = [];
     const stockSplits: CorporateActionItem[] = [];
     const rightsIssues: CorporateActionItem[] = [];
+    const esopMsop: CorporateActionItem[] = [];
+    const bonuses: CorporateActionItem[] = [];
+    const warrants: CorporateActionItem[] = [];
+    const buybacks: CorporateActionItem[] = [];
+    const privatePlacements: CorporateActionItem[] = [];
     const rups: CorporateActionItem[] = [];
     const otherActions: CorporateActionItem[] = [];
 
     for (const item of filteredData) {
-      const jenisTindakan = (item.JenisTindakan || "").toLowerCase();
+      // Normalisasi teks untuk mengabaikan spasi, huruf besar/kecil, dan simbol strip/underscore
+      const rawJenis = (item.JenisTindakan || "")
+        .toLowerCase()
+        .replace(/[\s_-]/g, "");
 
       // Ambil format tanggal YYYY-MM-DD dari TanggalPencatatan
       const [listingDate = ""] = (item.TanggalPencatatan || "").split("T");
@@ -87,27 +119,72 @@ export class CorporateActionService extends IdxClient {
         description: `Jumlah saham setelah tindakan: ${sharesTotal} lembar`,
       };
 
-      // Categorization mapping
-      if (jenisTindakan.includes("dividen")) {
+      // Comprehensive Categorization Mapping Berdasarkan Format Normalisasi IDX
+      if (rawJenis.includes("dividen")) {
         actionItem.actionType = "DIVIDEND";
         dividends.push(actionItem);
-      } else if (
-        jenisTindakan.includes("split") ||
-        jenisTindakan.includes("reverse")
-      ) {
+      } else if (rawJenis.includes("reversestock")) {
+        actionItem.actionType = "REVERSE_STOCK";
+        stockSplits.push(actionItem);
+      } else if (rawJenis.includes("stocksplit")) {
         actionItem.actionType = "STOCK_SPLIT";
         stockSplits.push(actionItem);
-      } else if (
-        jenisTindakan.includes("hmetd") ||
-        jenisTindakan.includes("right")
-      ) {
+      } else if (rawJenis.includes("tanpahmetd")) {
+        actionItem.actionType = "TANPA_HMETD";
+        rightsIssues.push(actionItem);
+      } else if (rawJenis.includes("hmetd") || rawJenis.includes("right")) {
         actionItem.actionType = "RIGHTS_ISSUE";
         rightsIssues.push(actionItem);
-      } else if (jenisTindakan.includes("rups")) {
+      } else if (rawJenis.includes("esop") || rawJenis.includes("msop")) {
+        actionItem.actionType = "ESOP_MSOP";
+        esopMsop.push(actionItem);
+      } else if (rawJenis.includes("bonus")) {
+        actionItem.actionType = "BONUS";
+        bonuses.push(actionItem);
+      } else if (rawJenis.includes("waran")) {
+        actionItem.actionType = "WARRANT";
+        warrants.push(actionItem);
+      } else if (rawJenis.includes("BuybackSaham")) {
+        actionItem.actionType = "BUYBACK";
+        buybacks.push(actionItem);
+      } else if (
+        rawJenis.includes("privateplacement") ||
+        rawJenis.includes("pmthmetd")
+      ) {
+        actionItem.actionType = "PRIVATE_PLACEMENT";
+        privatePlacements.push(actionItem);
+      } else if (rawJenis.includes("rups")) {
         actionItem.actionType = "RUPS";
         rups.push(actionItem);
-      } else if (jenisTindakan.includes("bonus")) {
-        actionItem.actionType = "BONUS";
+      } else if (rawJenis.includes("ipo")) {
+        actionItem.actionType = "IPO";
+        otherActions.push(actionItem);
+      } else if (
+        rawJenis.includes("companylisting") ||
+        rawJenis.includes("listing")
+      ) {
+        actionItem.actionType = "LISTING";
+        otherActions.push(actionItem);
+      } else if (rawJenis.includes("delist")) {
+        actionItem.actionType = "DELISTING";
+        otherActions.push(actionItem);
+      } else if (
+        rawJenis.includes("gabungusaha") ||
+        rawJenis.includes("merger")
+      ) {
+        actionItem.actionType = "MERGER";
+        otherActions.push(actionItem);
+      } else if (
+        rawJenis.includes("kurangmodal") ||
+        rawJenis.includes("capitalreduction")
+      ) {
+        actionItem.actionType = "CAPITAL_REDUCTION";
+        otherActions.push(actionItem);
+      } else if (
+        rawJenis.includes("konversi") ||
+        rawJenis.includes("obligasiwajibkonversi")
+      ) {
+        actionItem.actionType = "CONVERSION";
         otherActions.push(actionItem);
       } else {
         otherActions.push(actionItem);
@@ -120,6 +197,11 @@ export class CorporateActionService extends IdxClient {
       dividends,
       stockSplits,
       rightsIssues,
+      esopMsop,
+      bonuses,
+      warrants,
+      buybacks,
+      privatePlacements,
       rups,
       otherActions,
     };

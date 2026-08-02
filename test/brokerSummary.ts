@@ -1,4 +1,4 @@
-import { stockbitBroxsumService } from "../src/services/stockbitBroxsumService";
+import { stockbitBroxsumService } from "../src/services/stockbitServices/fetchBroxSum";
 
 async function testBroxsum() {
   try {

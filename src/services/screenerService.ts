@@ -3,7 +3,7 @@ import type { EmitenDbRow, GorenganSuspect } from "../types";
 import { safeLog } from "../utils/safeLog";
 import { promisePool } from "../utils/mcp/promisePool"; // Dipindah ke helper terpisah
 import { getActiveUmaStocks } from "./idxServices/getUMAService";
-import { fetchYahooCandles } from "./yahooService";
+import { fetchYahooCandles } from "./yahooServices/fetchCandle";
 
 // ============================================================================
 // TYPES & INTERFACES

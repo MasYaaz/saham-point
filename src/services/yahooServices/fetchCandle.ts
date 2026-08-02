@@ -1,5 +1,5 @@
-import { yahooClient } from "../client/yahooClient";
-import type { CandleHistory } from "../types";
+import { yahooClient } from "../../client/yahooClient";
+import type { CandleHistory } from "../../types";
 
 const INTERVAL_MAP: Record<string, string> = {
   "1d": "5m",

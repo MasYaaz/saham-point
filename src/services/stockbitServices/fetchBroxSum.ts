@@ -1,4 +1,7 @@
-import { stockbitClient, StockbitClient } from "../client/stockbitClient";
+import {
+  stockbitClient,
+  type StockbitClient,
+} from "../../client/stockbitClient";
 
 /* ============================================================================
  * TYPES & INTERFACES (Compact Version)

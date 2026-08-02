@@ -43,7 +43,8 @@ export function registerBandarmologyTools(mcpServer: McpServer) {
       },
     },
     async ({ code, startDate, endDate }) => {
-      const { getBroxsum } = await import("../services/stockbitBroxsumService");
+      const { getBroxsum } =
+        await import("../services/stockbitServices/fetchBroxSum");
 
       // Menentukan tanggal default (1 Hari Bursa Terakhir)
       const now = new Date();
