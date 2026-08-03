@@ -7,14 +7,14 @@ import {
  * TYPES & INTERFACES (Compact Version)
  * ============================================================================ */
 
-export interface CompactBrokerDetail {
+interface CompactBrokerDetail {
   brokerCode: string;
   volume: number; // Volume transaksi (lot/lembar)
   value: number; // Value transaksi (Rp)
   avgPrice: number;
 }
 
-export interface BandarDetectorSummary {
+interface BandarDetectorSummary {
   accdistStatus: string;
   top1Percent: number;
   top3Percent: number;
@@ -23,7 +23,7 @@ export interface BandarDetectorSummary {
   totalSeller: number;
 }
 
-export interface BroxsumResponse {
+interface BroxsumResponse {
   ticker: string;
   fromDate: string;
   toDate: string;
@@ -33,7 +33,7 @@ export interface BroxsumResponse {
   bandarDetector?: BandarDetectorSummary;
 }
 
-export interface FetchBroxsumInput {
+interface FetchBroxsumInput {
   ticker: string;
   fromDate: string;
   toDate: string;

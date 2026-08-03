@@ -1,8 +1,8 @@
 import db from "../db";
 import type { EmitenDbRow, GorenganSuspect } from "../types";
-import { safeLog } from "../utils/safeLog";
+import { log } from "../utils/log";
 import { promisePool } from "../utils/mcp/promisePool"; // Dipindah ke helper terpisah
-import { getActiveUmaStocks } from "./idxServices/getUMAService";
+import { getActiveUmaStocks } from "./idxServices/getUMA";
 import { fetchYahooCandles } from "./yahooServices/fetchCandle";
 
 // ============================================================================
@@ -245,10 +245,6 @@ export function getRankedStocks(
   };
 }
 
-// ============================================================================
-// HYBRID / HEAVY ASYNC SCREENERS (EXTERNAL API + CANDLE ANALYSIS)
-// ============================================================================
-
 /**
  * Mengambil daftar saham terindikasi spekulatif (gorengan) dengan menjadikan
  * pengumuman UMA resmi BEI sebagai patokan utama kandidat, diperkaya data fundamental dan candle.
@@ -286,7 +282,7 @@ export async function getGorenganStocks(
       }
     }
   } catch (error) {
-    safeLog(
+    log(
       "warn",
       `[GorenganScreener] Gagal mengambil data UMA IDX, beralih ke database lokal. Error: ${
         error instanceof Error ? error.message : String(error)

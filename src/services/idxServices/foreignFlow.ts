@@ -1,26 +1,22 @@
-// ============================================================================
-// TYPES & INTERFACES
-// ============================================================================
-
 import IdxClient from "../../client/idxClient";
 
-export interface DailyForeignFlow {
-  date: string; // YYYY-MM-DD
+interface DailyForeignFlow {
+  date: string;
   foreignBuyValue: number;
   foreignSellValue: number;
-  netForeignValue: number; // Positive = Net Buy, Negative = Net Sell
+  netForeignValue: number;
   foreignBuyVolume: number;
   foreignSellVolume: number;
   netForeignVolume: number;
   closePrice: number;
 }
 
-export interface GetForeignFlowInput {
+interface GetForeignFlowInput {
   code: string;
-  dates: string[]; // Format: ["YYYYMMDD", ...]
+  dates: string[];
 }
 
-export interface ForeignFlowResponse {
+interface ForeignFlowResponse {
   code: string;
   stockName: string;
   periodDays: number;

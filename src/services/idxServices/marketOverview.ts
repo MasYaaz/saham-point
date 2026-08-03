@@ -4,7 +4,7 @@ import IdxClient from "../../client/idxClient";
 // TYPES & INTERFACES
 // ============================================================================
 
-export interface IndexPerformance {
+interface IndexPerformance {
   code: string;
   name: string;
   close: number;
@@ -12,7 +12,7 @@ export interface IndexPerformance {
   changePercent: number;
 }
 
-export interface StockMoverItem {
+interface StockMoverItem {
   code: string;
   name: string;
   closePrice: number;
@@ -22,7 +22,7 @@ export interface StockMoverItem {
   value: number;
 }
 
-export interface MarketOverviewResponse {
+interface MarketOverviewResponse {
   date: string;
   indices: IndexPerformance[];
   topGainers: StockMoverItem[];

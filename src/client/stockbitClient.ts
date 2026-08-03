@@ -1,5 +1,5 @@
 import BaseClient from "./baseClient";
-import { safeLog } from "../utils/safeLog";
+import { log } from "../utils/log";
 import { refreshStockbitToken } from "../auth/stockbitTokenRefresher";
 
 export interface StockbitRawResponse<T = any> {
@@ -72,7 +72,7 @@ export class StockbitClient extends BaseClient {
     // 🔄 AUTO-REFRESH RECOVERY SAAT HTTP 401 (UNAUTHORIZED)
     if (response.status === 401) {
       if (isRetry) {
-        safeLog(
+        log(
           "error",
           `[StockbitClient] Token tetap kadaluwarsa setelah refresh saat mengakses: ${url}`,
         );
@@ -81,7 +81,7 @@ export class StockbitClient extends BaseClient {
         );
       }
 
-      safeLog(
+      log(
         "warn",
         `[StockbitClient] Token expired (401) saat mengakses ${url}. Memulai auto-refresh...`,
       );
@@ -104,10 +104,7 @@ export class StockbitClient extends BaseClient {
     }
 
     if (response.status === 429) {
-      safeLog(
-        "warn",
-        `[StockbitClient] Hit rate limit (HTTP 429) pada: ${url}`,
-      );
+      log("warn", `[StockbitClient] Hit rate limit (HTTP 429) pada: ${url}`);
       throw new Error(
         "Rate Limit Terlampaui (HTTP 429). Terlalu banyak request ke Stockbit.",
       );

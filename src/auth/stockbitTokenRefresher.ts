@@ -1,4 +1,4 @@
-import { safeLog } from "../utils/safeLog";
+import { log } from "../utils/log";
 
 const ENV_PATH = ".env";
 
@@ -24,7 +24,7 @@ export async function refreshStockbitToken(): Promise<string> {
     );
   }
 
-  safeLog(
+  log(
     "info",
     "[Auth] Meminta Bearer Token baru menggunakan eipoRefreshToken...",
   );
@@ -69,7 +69,7 @@ export async function refreshStockbitToken(): Promise<string> {
     );
   }
 
-  safeLog("info", "[Auth] ✅ Berhasil memperbarui Bearer Token Stockbit!");
+  log("info", "[Auth] ✅ Berhasil memperbarui Bearer Token Stockbit!");
 
   // 1. Update runtime environment
   process.env.STOCKBIT_BEARER_TOKEN = newToken;
@@ -97,9 +97,9 @@ async function updateEnvFile(key: string, value: string): Promise<void> {
       }
 
       await Bun.write(ENV_PATH, content);
-      safeLog("info", `[Auth] ${key} berhasil diperbarui di file .env.`);
+      log("info", `[Auth] ${key} berhasil diperbarui di file .env.`);
     }
   } catch (error: any) {
-    safeLog("error", `[Auth] Gagal memperbarui file .env: ${error.message}`);
+    log("error", `[Auth] Gagal memperbarui file .env: ${error.message}`);
   }
 }

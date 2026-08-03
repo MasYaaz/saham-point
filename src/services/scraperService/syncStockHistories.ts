@@ -1,6 +1,6 @@
 import db from "../../db";
 import type { EmitenItem } from "../../types";
-import { safeLog } from "../../utils/safeLog";
+import { log } from "../../utils/log";
 import { fetchPriceTradingView } from "../tradingviewServices/fetchScreener";
 import {
   fetchStockHistories,
@@ -55,16 +55,16 @@ export async function syncStockHistories(
       .all() as EmitenItem[];
 
     if (queue.length === 0) {
-      safeLog("info", "[runSyncDataAll] Antrean sinkronisasi kosong.");
+      log("info", "[runSyncDataAll] Antrean sinkronisasi kosong.");
       return { success: 0, fail: 0, failedLogs: ["Antrean kosong."] };
     }
 
-    safeLog(
+    log(
       "info",
       `[runSyncDataAll] Memulai sinkronisasi untuk ${queue.length} emiten.`,
     );
     await fetchPriceTradingView(queue).catch((err) =>
-      safeLog(
+      log(
         "warn",
         `[TradingView] Gagal memperbarui harga antrean: ${err?.message || err}`,
       ),
@@ -87,7 +87,7 @@ export async function syncStockHistories(
     // 2. Loop pemrosesan data
     for (const item of queue) {
       if (!stockHistoriesSyncState.isActive) {
-        safeLog("warn", "[runSyncDataAll] Sinkronisasi dihentikan pengguna.");
+        log("warn", "[runSyncDataAll] Sinkronisasi dihentikan pengguna.");
         break;
       }
 
@@ -180,8 +180,8 @@ export async function syncStockHistories(
     }
 
     const duration = ((performance.now() - startTime) / 1000 / 60).toFixed(2);
-    safeLog("log", `\n[Selesai] Sinkronisasi Selesai dalam ${duration} menit.`);
-    safeLog(
+    log("log", `\n[Selesai] Sinkronisasi Selesai dalam ${duration} menit.`);
+    log(
       "log",
       `Total Sukses: ${successCount} Emiten | Gagal: ${failCount} Emiten\n`,
     );

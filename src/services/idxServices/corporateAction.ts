@@ -24,7 +24,7 @@ export type ActionType =
   | "RUPS"
   | "OTHER";
 
-export interface CorporateActionItem {
+interface CorporateActionItem {
   code: string;
   actionType: ActionType;
   title: string;
@@ -36,7 +36,7 @@ export interface CorporateActionItem {
   description?: string;
 }
 
-export interface CorporateActionResponse {
+interface CorporateActionResponse {
   code: string;
   totalActions: number;
   dividends: CorporateActionItem[];

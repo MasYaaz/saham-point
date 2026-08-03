@@ -1,6 +1,6 @@
 import IdxClient from "../../client/idxClient";
 
-export interface UmaRawItem {
+interface UmaRawItem {
   UMAID: string;
   UMADate: string;
   AnnouncementNo: string;
@@ -11,7 +11,7 @@ export interface UmaRawItem {
   Judul: string;
 }
 
-export interface IdxUmaApiResponse {
+interface IdxUmaApiResponse {
   SearchCriteria: {
     DateFrom: string | null;
     DateTo: string | null;
@@ -23,13 +23,13 @@ export interface IdxUmaApiResponse {
   Results: UmaRawItem[];
 }
 
-export interface FetchUmaParams {
+interface FetchUmaParams {
   keyword?: string;
   indexFrom?: number;
   pageSize?: number;
 }
 
-export interface FormattedUmaStock {
+interface FormattedUmaStock {
   code: string;
   name: string;
   announcementNo: string;

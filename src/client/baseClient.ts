@@ -1,4 +1,4 @@
-import { safeLog } from "../utils/safeLog";
+import { log } from "../utils/log";
 
 /**
  * Generik Base HTTP Client dengan retry mechanism & safe logging.
@@ -51,7 +51,7 @@ export default abstract class BaseClient {
 
         const delay = Math.min(1000 * Math.pow(2, attempt - 1), 15000);
 
-        safeLog(
+        log(
           "warn",
           `[BaseClient] Fetch failed for ${url}. Retrying in ${
             delay / 1000
@@ -81,7 +81,7 @@ export default abstract class BaseClient {
       if (!res.ok) return null;
       return (await res.json()) as T;
     } catch (error) {
-      safeLog(
+      log(
         "error",
         `[BaseClient] Error parsing JSON from ${url}: ${
           error instanceof Error ? error.message : String(error)

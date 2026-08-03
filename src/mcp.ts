@@ -6,7 +6,7 @@ import { VERSION } from "./config";
 import { registerCoreTools } from "./mcp/coreTools";
 import { registerBandarmologyTools } from "./mcp/bandarmologyTools";
 import { registerScreenerTools } from "./mcp/screenerTools";
-import { safeLog } from "./utils/safeLog";
+import { log } from "./utils/log";
 import { registerStockTools } from "./mcp/stockTools";
 
 /* ============================================================================
@@ -83,21 +83,29 @@ async function startMcpServer(): Promise<void> {
   const server = createMcpServer();
   const transport = new StdioServerTransport();
 
-  // Handshake MCP diselesaikan secara murni (Super Cepat!)
   await server.connect(transport);
   console.error(`[MCP] Saham Point MCP Server v${VERSION} running on stdio`);
 
-  // Jalankan worker di thread/CPU core terpisah secara multithreading
   setTimeout(() => {
     try {
       const workerUrl = new URL("./worker.ts", import.meta.url);
       const worker = new Worker(workerUrl);
 
-      worker.onerror = (err) => {
-        safeLog("error", `[Worker Thread Error] ${err}`);
+      // Extract proper error details from ErrorEvent
+      worker.onerror = (err: ErrorEvent) => {
+        const details =
+          err.error?.stack || err.message || "Unknown Worker Error";
+        const location = err.filename
+          ? ` (${err.filename}:${err.lineno}:${err.colno})`
+          : "";
+
+        log("error", `[Worker Thread Error] ${details}${location}`);
       };
-    } catch (err) {
-      safeLog("error", `[MCP Worker] Gagal memicu worker thread: ${err}`);
+    } catch (err: any) {
+      log(
+        "error",
+        `[MCP Worker] Gagal memicu worker thread: ${err?.message || err}`,
+      );
     }
   }, 0);
 }

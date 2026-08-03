@@ -1,62 +1,55 @@
-import { fetchEmitenNews } from "../src/services/newsService"; // Sesuaikan path jika berbeda (misal: "../services/newsService")
+import { searchNews } from "../src/services/newsServices/searchNews";
 
 async function testNewsScraper() {
   console.log("🚀 Starting News Scraper Test...\n");
 
-  const testCases = [
-    { symbol: "RANS", name: "PT Rans Entertainment Indonesia Tbk" },
-  ];
+  // Satu contoh test case
+  const testCase = {
+    label: "Emiten Specific (RANS)",
+    query: "prospek RANS Entertainment",
+    time: 30,
+    limit: 10,
+    lang: "id" as const,
+  };
 
-  for (const emiten of testCases) {
-    console.log(`==================================================`);
-    console.log(`🔍 Testing Ticker: [${emiten.symbol}] - ${emiten.name}`);
-    console.log(`==================================================`);
+  console.log(`==================================================`);
+  console.log(`🔍 Test Case: ${testCase.label}`);
+  console.log(`==================================================`);
 
-    const startTime = Date.now();
-    try {
-      // Memanggil fetcher berita RSS murni (2 minggu terakhir)
-      const news = await fetchEmitenNews(
-        emiten.symbol,
-        emiten.name,
-        "id",
-        14, // maxDays
-      );
-      const duration = Date.now() - startTime;
+  const startTime = Date.now();
+  try {
+    // Memanggil fetchNewsByQuery(query, time, limit, lang)
+    const news = await searchNews(
+      testCase.query,
+      testCase.time,
+      testCase.limit,
+      testCase.lang,
+    );
 
-      console.log(`⏱️ Total Execution Time : ${duration} ms`);
-      console.log(`📰 Total News Found      : ${news.length} items\n`);
+    const duration = Date.now() - startTime;
 
-      if (news.length === 0) {
-        console.log("⚠️ Tidak ada berita dalam 2 minggu terakhir.\n");
-        continue;
-      }
+    console.log(`⏱️ Execution Time : ${duration} ms`);
+    console.log(`📰 Total News Found : ${news.length} items\n`);
 
-      console.log(`📌 Hasil Fetching Berita (${news.length} Item):`);
-      news.forEach((item, index) => {
-        console.log(`\n  ${index + 1}. [${item.source}] ${item.title}`);
-        console.log(`     📅 Published : ${item.published}`);
-        console.log(`     🔗 Link      : ${item.url}`);
-        console.log(`     📝 Summary   : ${item.summary || "-"}`);
-      });
-
-      // Validasi Tanggal Terlama (Harus <= 14 hari)
-      const oldestNews = news[news.length - 1];
-      if (oldestNews) {
-        const oldestDate = new Date(oldestNews.published);
-        const daysDiff = Math.floor(
-          (Date.now() - oldestDate.getTime()) / (1000 * 60 * 60 * 24),
-        );
-        console.log(
-          `\n⏳ Berita Paling Lama: ${daysDiff} hari yang lalu (${oldestNews.published})`,
-        );
-      }
-    } catch (error) {
-      console.error(`❌ Error fetching news for ${emiten.symbol}:`, error);
+    if (news.length === 0) {
+      console.log("⚠️ Tidak ada berita ditemukan.\n");
+      return;
     }
 
-    console.log("\n");
+    news.forEach((item, index) => {
+      console.log(`📌 Item #${index + 1} [${item.source}]`);
+      console.log(`   Title     : ${item.title}`);
+      console.log(`   Published : ${item.published}`);
+      console.log(`   Link      : ${item.url}`);
+      console.log(`   content   : ${item.content}`);
+      console.log(`--------------------------------------------------`);
+    });
+  } catch (error) {
+    console.error(`❌ Error executing test '${testCase.label}':`, error);
   }
+
+  console.log("\n");
 }
 
-// Jalankan Test
+// Jalankan Tes
 testNewsScraper();

@@ -2,21 +2,27 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 export function registerCoreTools(mcpServer: McpServer) {
-  // --- Trigger Sinkronisasi Background ---
+  // --- Manajemen Sinkronisasi Background ---
   mcpServer.registerTool(
-    "trigger_fundamental_sync",
+    "manage_stock_histories_sync",
     {
       description:
-        "Memulai, menjeda, atau mengecek status sinkronisasi data fundamental emiten di background runner.",
+        "Pusat kendali untuk mengelola sinkronisasi data riwayat saham (stock histories) emiten di background runner (mulai, jeda, cek status progress, atau reset status).",
       inputSchema: {
         action: z
-          .enum(["start", "pause", "status"])
+          .enum(["start", "pause", "status", "reset"])
           .describe(
-            "Aksi sinkronisasi: 'start' untuk mulai, 'pause' untuk menjeda, 'status' untuk mengecek progress",
+            "Aksi kontrol: 'start' (mulai), 'pause' (jeda), 'status' (cek progress), 'reset' (reset agar bisa sync ulang)",
+          ),
+        ticker: z
+          .string()
+          .optional()
+          .describe(
+            "Khusus aksi 'reset': Kode emiten spesifik (misal: 'BBCA'). Kosongkan untuk mereset SELURUH emiten.",
           ),
       },
     },
-    async ({ action }) => {
+    async ({ action, ticker }) => {
       const { stockHistoriesSyncState, syncStockHistories } =
         await import("../services/scraperService/syncStockHistories");
 
@@ -26,7 +32,7 @@ export function registerCoreTools(mcpServer: McpServer) {
             content: [
               {
                 type: "text",
-                text: "[INFO] Sinkronisasi sudah berjalan di background.",
+                text: "[INFO] Sinkronisasi stock histories sudah berjalan di background.",
               },
             ],
           };
@@ -39,7 +45,7 @@ export function registerCoreTools(mcpServer: McpServer) {
           content: [
             {
               type: "text",
-              text: "[SUCCESS] Proses sinkronisasi data fundamental berhasil dimulai di background.",
+              text: "[SUCCESS] Proses sinkronisasi data stock histories berhasil dimulai di background.",
             },
           ],
         };
@@ -51,7 +57,7 @@ export function registerCoreTools(mcpServer: McpServer) {
             content: [
               {
                 type: "text",
-                text: "[INFO] Sinkronisasi saat ini sedang tidak aktif.",
+                text: "[INFO] Sinkronisasi stock histories saat ini sedang tidak aktif.",
               },
             ],
           };
@@ -63,6 +69,38 @@ export function registerCoreTools(mcpServer: McpServer) {
             {
               type: "text",
               text: "[INFO] Sinyal jeda dikirim. Proses akan berhenti setelah emiten yang sedang berjalan selesai.",
+            },
+          ],
+        };
+      }
+
+      if (action === "reset") {
+        const db = (await import("../db")).default;
+
+        if (ticker) {
+          const cleanTicker = ticker.trim().toUpperCase();
+          db.query(
+            "UPDATE emiten SET is_fundamental_complete = 0 WHERE ticker = ?",
+          ).run(cleanTicker);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `[SUCCESS] Status stock histories emiten '${cleanTicker}' berhasil direset ke 0. Siap untuk di-sync ulang.`,
+              },
+            ],
+          };
+        }
+
+        // Reset seluruh emiten jika ticker tidak diisi
+        db.query("UPDATE emiten SET is_fundamental_complete = 0").run();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: "[SUCCESS] Seluruh status stock histories emiten berhasil direset ke 0. Siap untuk di-sync ulang dari awal.",
             },
           ],
         };
@@ -128,7 +166,7 @@ export function registerCoreTools(mcpServer: McpServer) {
     },
     async ({ action, target, lines }) => {
       const { getLogs, listLogFiles, cleanLogs } =
-        await import("../services/systemServices/logsService");
+        await import("../services/systemServices/logs");
 
       if (action === "list") {
         const result = listLogFiles();

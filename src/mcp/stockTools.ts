@@ -125,10 +125,25 @@ export function registerStockTools(mcpServer: McpServer) {
     async ({ code }) => {
       const { getEmitenProfile } = await import("../services/sahamService");
       const data = getEmitenProfile(code);
-      if (!data)
+
+      if (!data) {
         return {
-          content: [{ type: "text", text: `Ticker ${code} tidak ditemukan` }],
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  code: code.toUpperCase(),
+                  message: `Ticker ${code.toUpperCase()} tidak ditemukan di database.`,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
         };
+      }
+
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
@@ -160,7 +175,14 @@ export function registerStockTools(mcpServer: McpServer) {
           content: [
             {
               type: "text",
-              text: `Data teknikal ${code.toUpperCase()} tidak ditemukan`,
+              text: JSON.stringify(
+                {
+                  code: code.toUpperCase(),
+                  message: `Data teknikal ${code.toUpperCase()} tidak ditemukan.`,
+                },
+                null,
+                2,
+              ),
             },
           ],
         };
@@ -172,25 +194,42 @@ export function registerStockTools(mcpServer: McpServer) {
     },
   );
 
-  // --- Berita dan Sentimen Emiten ---
+  // --- Pencarian Berita Umum & Terkini ---
   mcpServer.registerTool(
-    "get_stock_news",
+    "search_news",
     {
       description:
-        "Mengambil seluruh berita finansial & emiten terkini (2 minggu terakhir) dari Google News & Yahoo Finance.",
+        "Gunakan tool ini untuk mencari berita terkini mengenai topik apa saja (politik, ekonomi, bisnis, teknologi, olahraga, hingga peristiwa umum) lengkap dengan isi teks artikel langsung dalam 1 pemanggilan.",
       inputSchema: {
-        code: z.string().describe("Kode ticker saham, misal: BBRI, AMRT, ADRO"),
-        companyName: z
+        query: z
           .string()
-          .optional()
           .describe(
-            "Nama perusahaan opsional untuk hasil query yang lebih akurat, misal: Alfamart",
+            "Kata kunci atau topik pencarian berita, misal: 'kebijakan PPN', 'teknologi AI', 'cuaca ekstrem', 'saham BBCA'",
           ),
+        maxDays: z
+          .number()
+          .optional()
+          .default(30)
+          .describe(
+            "Batas maksimal umur berita dalam hari (default: 30). Jika berita tidak ditemukan, nilai ini dapat diperbesar.",
+          ),
+        limit: z
+          .number()
+          .optional()
+          .default(10)
+          .describe("Jumlah maksimal artikel yang ditarik (default: 10)"),
+        lang: z
+          .enum(["id", "en"])
+          .optional()
+          .default("id")
+          .describe("Bahasa sumber berita (default: 'id')"),
       },
     },
-    async ({ code, companyName }) => {
-      const { fetchEmitenNews } = await import("../services/newsService");
-      const news = await fetchEmitenNews(code, companyName, "id");
+    async ({ query, maxDays, limit, lang }) => {
+      const { searchNews } =
+        await import("../services/newsServices/searchNews");
+
+      const news = await searchNews(query, maxDays, limit, lang);
 
       if (!news || news.length === 0) {
         return {
@@ -199,9 +238,10 @@ export function registerStockTools(mcpServer: McpServer) {
               type: "text",
               text: JSON.stringify(
                 {
-                  code: code.toUpperCase(),
+                  query,
                   total: 0,
-                  message: `Tidak ada berita terkini dalam 2 minggu terakhir untuk ${code}`,
+                  message:
+                    "Tidak ada berita ditemukan sesuai pencarian tersebut.",
                   data: [],
                 },
                 null,
@@ -218,7 +258,7 @@ export function registerStockTools(mcpServer: McpServer) {
             type: "text",
             text: JSON.stringify(
               {
-                code: code.toUpperCase(),
+                query,
                 total: news.length,
                 data: news,
               },

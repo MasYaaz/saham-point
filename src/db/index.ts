@@ -4,7 +4,7 @@ import { mkdirSync, existsSync } from "fs";
 import fs from "node:fs";
 import path from "path";
 import type { CountResult, RawStockData } from "../types";
-import { safeLog } from "../utils/safeLog";
+import { log } from "../utils/log";
 
 /**
  * Mendapatkan lokasi folder 'data' secara dinamis
@@ -189,7 +189,7 @@ export async function seedEmitenIfEmpty(database: Database): Promise<void> {
     .get() as CountResult | undefined;
 
   if (!countResult || countResult.total === 0) {
-    safeLog(
+    log(
       "error",
       "[DB] Tabel emiten kosong. Memulai seeding langsung dari TradingView Screener...",
     );
@@ -223,13 +223,13 @@ export async function seedEmitenIfEmpty(database: Database): Promise<void> {
         );
 
         insertTransaction(allStocks);
-        safeLog(
+        log(
           "log",
           `[DB] Berhasil menginisialisasi ${allStocks.length} emiten dari TradingView.`,
         );
       }
     } catch (error) {
-      safeLog(
+      log(
         "error",
         `[DB] Terjadi kesalahan saat inisialisasi dari TradingView: ${error}`,
       );

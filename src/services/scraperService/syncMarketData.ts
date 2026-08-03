@@ -4,7 +4,7 @@ import {
   fetchFullMarketDataTradingView,
   fetchPriceTradingView,
 } from "../tradingviewServices/fetchScreener";
-import { safeLog } from "../../utils/safeLog";
+import { log } from "../../utils/log";
 
 /**
  * Menyinkronkan data pasar (harga real-time, profil, market cap, & dividen)
@@ -18,7 +18,7 @@ export async function syncMarketPrice(): Promise<string> {
     return "[Market Sync] Tabel emiten kosong.";
   }
 
-  safeLog(
+  log(
     "info",
     `[Market Sync] Memproses seluruh ${queue.length} emiten sekaligus via TradingView Scanner...`,
   );
@@ -41,7 +41,7 @@ export async function syncMarketData(): Promise<string> {
     return "[Market Sync] Tabel emiten kosong.";
   }
 
-  safeLog(
+  log(
     "info",
     `[Market Sync] Memproses seluruh ${queue.length} emiten sekaligus via TradingView Scanner...`,
   );

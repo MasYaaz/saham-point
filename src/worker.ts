@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { safeLog } from "./utils/safeLog";
+import { log } from "./utils/log";
 import {
   syncMarketData,
   syncMarketPrice,
@@ -12,7 +12,7 @@ async function executeSync(
   label: string,
 ): Promise<void> {
   if (isSyncing) {
-    safeLog(
+    log(
       "warn",
       `[Worker] Sinkronisasi (${label}) dilewati karena proses lain masih berjalan.`,
     );
@@ -22,9 +22,9 @@ async function executeSync(
   isSyncing = true;
   try {
     const status = await syncFn();
-    safeLog("info", `[Sync Success] ${label}: ${status}`);
+    log("info", `[Sync Success] ${label}: ${status}`);
   } catch (error) {
-    safeLog(
+    log(
       "error",
       `[Sync Error] Gagal pada ${label}: ${
         error instanceof Error ? error.message : String(error)
@@ -36,7 +36,7 @@ async function executeSync(
 }
 
 export function startMarketWorker(): void {
-  safeLog("info", "[Worker] Scheduler bursa saham aktif (Asia/Jakarta).");
+  log("info", "[Worker] Scheduler bursa saham aktif (Asia/Jakarta).");
 
   // Jalankan sinkronisasi awal saat worker pertama kali dipanggil
   executeSync(syncMarketData, "Initial Startup Sync");
@@ -56,10 +56,7 @@ export function startMarketWorker(): void {
 
   // Graceful Shutdown Handler
   const handleShutdown = (signal: string) => {
-    safeLog(
-      "info",
-      `[Worker] Menerima sinyal ${signal}. Mematikan scheduler...`,
-    );
+    log("info", `[Worker] Menerima sinyal ${signal}. Mematikan scheduler...`);
     task.stop();
   };
 
