@@ -8,7 +8,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_undervalued",
     {
       description:
-        "Screener Value Investing: menyaring saham murah dengan ROE tinggi, DER sehat, dan PBV/PER wajar.",
+        "Screener Value Investing untuk menyaring saham berharga murah (undervalued) dengan profitabilitas (ROE) tinggi dan utang (DER) sehat.",
       inputSchema: {
         max_pbv: z.number().optional().default(1.5),
         min_roe: z.number().optional().default(10.0),
@@ -18,7 +18,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     },
     async ({ max_pbv, min_roe, max_der, limit }) => {
       const { getUndervaluedStocks } =
-        await import("../services/screenerService");
+        await import("../services/screenerServices/UndervaluedStocks");
       const result = getUndervaluedStocks({
         maxPbv: max_pbv,
         minRoe: min_roe,
@@ -36,7 +36,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_market_cap",
     {
       description:
-        "Screener menyaring daftar saham berdasarkan kriteria rentang kapitalisasi pasar (Market Cap).",
+        "Screener saham berdasarkan kriteria rentang kapitalisasi pasar (Big, Mid, atau Small Cap) dan pengurutan.",
       inputSchema: {
         min_market_cap: z.number().optional().default(0),
         max_market_cap: z.number().optional().nullable(),
@@ -46,7 +46,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     },
     async ({ min_market_cap, max_market_cap, sort, limit }) => {
       const { getMarketCapStocks } =
-        await import("../services/screenerService");
+        await import("../services/screenerServices/MarketCaps");
       const result = getMarketCapStocks({
         minMarketCap: min_market_cap,
         maxMarketCap: max_market_cap ?? null,
@@ -64,7 +64,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_technical",
     {
       description:
-        "Screener momentum pergerakan harga saham harian berdasarkan strategi teknikal (breakout, reversal, volatile).",
+        "Screener momentum pergerakan harga saham harian berdasarkan strategi teknikal (breakout, reversal, atau volatile).",
       inputSchema: {
         strategy: z.string().optional().default("breakout"),
         limit: z.number().optional().default(30),
@@ -72,7 +72,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     },
     async ({ strategy, limit }) => {
       const { getTechnicalScreener } =
-        await import("../services/screenerService");
+        await import("../services/screenerServices/Technical");
       const result = getTechnicalScreener({ strategy, limit });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -85,7 +85,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_dividend_hunters",
     {
       description:
-        "Screener memburu saham dengan Dividend Yield jumbo dan rasio utang aman (DER <= 1.5).",
+        "Screener untuk memburu saham dengan Dividend Yield tinggi dan tingkat utang sehat (DER <= 1.5).",
       inputSchema: {
         min_yield: z.number().optional().default(5.0),
         limit: z.number().optional().default(25),
@@ -93,7 +93,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     },
     async ({ min_yield, limit }) => {
       const { getDividendHunters } =
-        await import("../services/screenerService");
+        await import("../services/screenerServices/DividendHunter");
       const result = getDividendHunters({ minYield: min_yield, limit });
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -106,13 +106,14 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_cash_rich",
     {
       description:
-        "Screener perusahaan super solven dengan Free Cash Flow positif dan Net Debt negatif.",
+        "Screener perusahaan solven dengan Free Cash Flow positif dan kas melebihi total utang (Net Debt negatif).",
       inputSchema: {
         limit: z.number().optional().default(25),
       },
     },
     async ({ limit }) => {
-      const { getCashRichStocks } = await import("../services/screenerService");
+      const { getCashRichStocks } =
+        await import("../services/screenerServices/CashRichStocks");
       const result = getCashRichStocks(limit);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -125,13 +126,14 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_growth",
     {
       description:
-        "Screener emiten yang menunjukkan akselerasi pertumbuhan laba bersih positif pada laporan terbaru.",
+        "Screener emiten yang mencatatkan akselerasi pertumbuhan laba bersih positif pada laporan keuangan terbaru.",
       inputSchema: {
         limit: z.number().optional().default(25),
       },
     },
     async ({ limit }) => {
-      const { getGrowthStocks } = await import("../services/screenerService");
+      const { getGrowthStocks } =
+        await import("../services/screenerServices/GrowthStocks");
       const result = getGrowthStocks(limit);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -144,14 +146,15 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_rankings",
     {
       description:
-        "Peringkat emiten teratas berdasarkan kriteria market_cap atau dividend_yield.",
+        "Menampilkan peringkat emiten teratas bursa berdasarkan kapitalisasi pasar atau imbal hasil dividen.",
       inputSchema: {
         sort: z.string().optional().default("market_cap"),
         limit: z.number().optional().default(25),
       },
     },
     async ({ sort, limit }) => {
-      const { getRankedStocks } = await import("../services/screenerService");
+      const { getRankedStocks } =
+        await import("../services/screenerServices/RankedStocks");
       const result = getRankedStocks(sort, limit);
       return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -164,10 +167,7 @@ export function registerScreenerTools(mcpServer: McpServer) {
     "screener_gorengan",
     {
       description:
-        "Screener Deteksi Saham Gorengan / Spekulatif: Menyaring emiten spekulatif berbasis pengumuman resmi UMA (Unusual Market Activity) BEI terkini, diperkaya analisis anomali fundamental (micro cap, valuation trap, PER anomali) dan sinyal candle OHLCV real-time (Volume Spike & Price Pump).\n\n" +
-        "PETUNJUK PENYAJIAN HASIL UNTUK LLM:\n" +
-        "1. Buat ringkasan murni berdasarkan array 'reasons' dan 'candle_signals' yang tersedia pada setiap item data.\n" +
-        "2. DILARANG keras menambah, mengasumsikan, atau meramal indikator teknikal/fundamental di luar data JSON yang diberikan (seperti MACD, RSI, Moving Average, rumor dividen, aset, dll).",
+        "Screener deteksi saham spekulatif/gorengan berbasis pengumuman UMA BEI, anomali fundamental, dan sinyal pump/volume spike harian. Sajikan analisis faktual dari field 'reasons' dan 'candle_signals'.",
       inputSchema: {
         limit: z
           .number()
@@ -178,12 +178,11 @@ export function registerScreenerTools(mcpServer: McpServer) {
       },
     },
     async ({ limit }) => {
-      const { getGorenganStocks } = await import("../services/screenerService");
+      const { getGorenganStocks } =
+        await import("../services/screenerServices/GorenganStocks");
 
-      // Mengambil seluruh data emiten UMA hasil analisis
       let result = await getGorenganStocks();
 
-      // Slicing opsional jika caller menentukan parameter limit
       if (limit && limit > 0) {
         result = result.slice(0, limit);
       }

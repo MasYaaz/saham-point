@@ -1,19 +1,15 @@
 import db from "../../db";
 import type { EmitenItem } from "../../types";
-import { log } from "../../utils/log";
 import { fetchPriceTradingView } from "../tradingviewServices/fetchScreener";
 import {
   fetchStockHistories,
   type FullStockMetrics,
-} from "../tradingviewServices/fetchWebSocket";
+} from "../tradingviewServices/fetchStockHistories";
 
 export const stockHistoriesSyncState = {
   isActive: false,
 };
 
-// ============================================================================
-// FUNGSI 2: MAIN ENGINE & SINKRONISASI DATABASE (TUNGGAL)
-// ============================================================================
 export async function syncStockHistories(
   onProgress?: (
     currentCount: number,
@@ -21,14 +17,13 @@ export async function syncStockHistories(
     code: string,
     status: "OK" | "FAIL" | "INCOMPLETE",
   ) => void,
-): Promise<{ success: number; fail: number; failedLogs: string[] }> {
+): Promise<string> {
   stockHistoriesSyncState.isActive = true;
   const startTime = performance.now();
 
   let successCount = 0;
   let failCount = 0;
   let processedCount = 0;
-  const failedLogs: string[] = [];
 
   try {
     // 1. Ambil antrean emiten dari database
@@ -55,20 +50,11 @@ export async function syncStockHistories(
       .all() as EmitenItem[];
 
     if (queue.length === 0) {
-      log("info", "[runSyncDataAll] Antrean sinkronisasi kosong.");
-      return { success: 0, fail: 0, failedLogs: ["Antrean kosong."] };
+      return "Antrean sinkronisasi kosong";
     }
 
-    log(
-      "info",
-      `[runSyncDataAll] Memulai sinkronisasi untuk ${queue.length} emiten.`,
-    );
-    await fetchPriceTradingView(queue).catch((err) =>
-      log(
-        "warn",
-        `[TradingView] Gagal memperbarui harga antrean: ${err?.message || err}`,
-      ),
-    );
+    // Perbarui harga antrean
+    await fetchPriceTradingView(queue).catch(() => {});
 
     const insertStmt = db.prepare(`
       INSERT OR REPLACE INTO stock_histories (
@@ -87,7 +73,6 @@ export async function syncStockHistories(
     // 2. Loop pemrosesan data
     for (const item of queue) {
       if (!stockHistoriesSyncState.isActive) {
-        log("warn", "[runSyncDataAll] Sinkronisasi dihentikan pengguna.");
         break;
       }
 
@@ -107,7 +92,6 @@ export async function syncStockHistories(
         if (!historyResult || Object.keys(combinedMetrics).length === 0) {
           failCount++;
           status = "INCOMPLETE";
-          failedLogs.push(`${code}: Data histori kosong atau timeout.`);
 
           db.run(
             "UPDATE emiten SET fundamental_updated_at = datetime('now') WHERE code = ?",
@@ -161,10 +145,9 @@ export async function syncStockHistories(
 
           successCount++;
         }
-      } catch (err: any) {
+      } catch {
         failCount++;
         status = "FAIL";
-        failedLogs.push(`${code}: ${err?.message || err}`);
 
         db.run(
           "UPDATE emiten SET fundamental_updated_at = datetime('now') WHERE code = ?",
@@ -180,13 +163,7 @@ export async function syncStockHistories(
     }
 
     const duration = ((performance.now() - startTime) / 1000 / 60).toFixed(2);
-    log("log", `\n[Selesai] Sinkronisasi Selesai dalam ${duration} menit.`);
-    log(
-      "log",
-      `Total Sukses: ${successCount} Emiten | Gagal: ${failCount} Emiten\n`,
-    );
-
-    return { success: successCount, fail: failCount, failedLogs };
+    return `Total: ${queue.length} | Sukses: ${successCount} | Gagal: ${failCount} (${duration}m)`;
   } finally {
     stockHistoriesSyncState.isActive = false;
   }

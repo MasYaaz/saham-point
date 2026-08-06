@@ -72,16 +72,6 @@ export interface TradingViewFinancialHistory {
   free_cash_flow?: number | null; // Free cash flow
 }
 
-// Struktur data profil hasil parse dari halaman utama Yahoo
-export interface ScrapedProfile {
-  description: string | null;
-  market_cap: number | null;
-  beta: number | null;
-  last_dividend: number | null;
-  per: number | null;
-  eps: number | null;
-}
-
 export interface YahooChartResponse {
   chart: {
     result: Array<{
@@ -141,22 +131,4 @@ export interface EmitenBasicInfo {
   code: string;
   name: string;
   sector?: string;
-}
-
-export interface GorenganSuspect {
-  code: string;
-  name: string;
-  sector: string;
-  last_price: number;
-  market_cap: number | null;
-  gorengan_score: number;
-  reasons: string[];
-  per: number | null;
-  pbv: number | null;
-  roe: number | null;
-  candle_signals?: {
-    volume_spike_ratio: number; // Rasio volume terhadap rata-rata 20 hari
-    recent_5d_return_pct: number; // Persentase kenaikan harga 5 hari terakhir
-    consecutive_green_days?: number; // Jumlah penutupan harga hijau beruntun
-  };
 }

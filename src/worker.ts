@@ -1,32 +1,43 @@
 import cron from "node-cron";
 import { log } from "./utils/log";
 import {
-  syncMarketData,
-  syncMarketPrice,
-} from "./services/scraperService/syncMarketData";
+  syncStockData,
+  syncStockPrice,
+} from "./services/syncStockService/syncMarketData";
+import { syncStockList } from "./services/syncStockService/syncStockList";
+import { syncCorporateActions } from "./services/syncStockService/syncCorporateAction";
+
+type NamedSyncTask = {
+  name: string;
+  fn: () => Promise<string>;
+};
 
 let isSyncing = false;
 
 async function executeSync(
-  syncFn: () => Promise<string>,
-  label: string,
+  tasks: NamedSyncTask | NamedSyncTask[],
+  groupLabel = "Worker",
 ): Promise<void> {
   if (isSyncing) {
     log(
       "warn",
-      `[Worker] Sinkronisasi (${label}) dilewati karena proses lain masih berjalan.`,
+      `[${groupLabel}] Sinkronisasi dilewati karena proses lain masih berjalan.`,
     );
     return;
   }
 
   isSyncing = true;
   try {
-    const status = await syncFn();
-    log("info", `[Sync Success] ${label}: ${status}`);
+    const taskList = Array.isArray(tasks) ? tasks : [tasks];
+
+    for (const { name, fn } of taskList) {
+      const status = await fn();
+      log("info", `[${name}] ${status}`);
+    }
   } catch (error) {
     log(
       "error",
-      `[Sync Error] Gagal pada ${label}: ${
+      `[Sync Error] Gagal pada ${groupLabel}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -35,26 +46,33 @@ async function executeSync(
   }
 }
 
-export function startMarketWorker(): void {
+function startMarketWorker(): void {
   log("info", "[Worker] Scheduler bursa saham aktif (Asia/Jakarta).");
 
-  // Jalankan sinkronisasi awal saat worker pertama kali dipanggil
-  executeSync(syncMarketData, "Initial Startup Sync");
+  // Initial Sync
+  executeSync(
+    [
+      { name: "Sync Stock List", fn: syncStockList },
+      { name: "Sync Market Data", fn: syncStockData },
+      { name: "Sync Corporate Action Calendar", fn: syncCorporateActions },
+    ],
+    "Initial Startup Sync",
+  );
 
-  /**
-   * Scheduler Sinkronisasi Harga Pasar Real-Time (Setiap 1 menit, Senin-Jumat, 09:00 - 16:59 WIB)
-   */
+  // Cron Job
   const task = cron.schedule(
     "*/1 9-16 * * 1-5",
     async () => {
-      await executeSync(syncMarketPrice, "Cron Market Price Sync");
+      await executeSync(
+        { name: "Cron Market Price", fn: syncStockPrice },
+        "Cron Price Sync",
+      );
     },
     {
       timezone: "Asia/Jakarta",
     },
   );
 
-  // Graceful Shutdown Handler
   const handleShutdown = (signal: string) => {
     log("info", `[Worker] Menerima sinyal ${signal}. Mematikan scheduler...`);
     task.stop();
@@ -63,3 +81,5 @@ export function startMarketWorker(): void {
   process.once("SIGINT", () => handleShutdown("SIGINT"));
   process.once("SIGTERM", () => handleShutdown("SIGTERM"));
 }
+
+startMarketWorker();

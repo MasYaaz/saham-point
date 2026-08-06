@@ -7,7 +7,7 @@ export function registerStockTools(mcpServer: McpServer) {
     "search_stock_code",
     {
       description:
-        "Mencari kode ticker saham (emiten) IDX berdasarkan nama perusahaan atau kata kunci pencarian (misal: 'Alfamart', 'Bank Rakyat', 'Telkom').",
+        "Mencari kode ticker resmi 4 huruf IDX berdasarkan nama perusahaan atau kata kunci pencarian (misal: 'Alfamart', 'Telkom').",
       inputSchema: {
         query: z.string().describe("Nama perusahaan atau kata kunci pencarian"),
         limit: z
@@ -65,7 +65,7 @@ export function registerStockTools(mcpServer: McpServer) {
     "list_emiten",
     {
       description:
-        "Mengambil daftar seluruh emiten saham yang tersimpan di database lokal beserta status kelengkapan data fundamentalnya.",
+        "Mengambil daftar emiten saham di database lokal beserta status kelengkapan data fundamentalnya.",
       inputSchema: {
         limit: z
           .number()
@@ -117,7 +117,7 @@ export function registerStockTools(mcpServer: McpServer) {
     "get_stock_profile",
     {
       description:
-        "Mengambil profil lengkap emiten saham Indonesia (IDX) beserta seluruh histori laporan keuangan tahunan dan kuartalan. Gunakan data dari tool ini untuk menganalisis valuasi historis (PER/PBV) serta tren pertumbuhan YoY.",
+        "Mengambil profil lengkap emiten IDX beserta histori laporan keuangan tahunan dan kuartalan untuk analisis fundamental dan valuasi.",
       inputSchema: {
         code: z.string().describe("Kode ticker saham, misal: BBRI, TLKM, ASII"),
       },
@@ -155,7 +155,7 @@ export function registerStockTools(mcpServer: McpServer) {
     "get_technical_indicators",
     {
       description:
-        "Mengambil rangkuman 16+ indikator teknikal saham (RSI, MACD, Moving Averages, Bollinger, ATR, ADX, Ichimoku, Volume) lengkap dengan evaluasi status grounded (oversold/overbought/neutral) dan ringkasan sinyal (summary_signals). WAJIB gunakan field status dan summary_signals yang dikembalikan tanpa menghitung atau menafsirkan ambang batas angka secara mandiri.",
+        "Mengambil 16+ indikator teknikal saham (RSI, MACD, MA, Bollinger) beserta sinyal evaluasi. Gunakan field status dan summary_signals dari respons.",
       inputSchema: {
         code: z.string().describe("Kode ticker saham, misal: BBRI"),
         range: z
@@ -199,7 +199,7 @@ export function registerStockTools(mcpServer: McpServer) {
     "search_news",
     {
       description:
-        "Gunakan tool ini untuk mencari berita terkini mengenai topik apa saja (politik, ekonomi, bisnis, teknologi, olahraga, hingga peristiwa umum) lengkap dengan isi teks artikel langsung dalam 1 pemanggilan.",
+        "Mencari berita terkini pasar saham, isu korporasi, ekonomi, politik, atau peristiwa umum beserta teks artikelnya.",
       inputSchema: {
         query: z
           .string()

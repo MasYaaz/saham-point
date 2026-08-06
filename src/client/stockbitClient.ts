@@ -69,7 +69,7 @@ export class StockbitClient extends BaseClient {
 
     const response = await this.fetcherUrl(url, { ...options, headers });
 
-    // 🔄 AUTO-REFRESH RECOVERY SAAT HTTP 401 (UNAUTHORIZED)
+    // AUTO-REFRESH RECOVERY SAAT HTTP 401 (UNAUTHORIZED)
     if (response.status === 401) {
       if (isRetry) {
         log(

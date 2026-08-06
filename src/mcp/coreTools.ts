@@ -7,14 +7,14 @@ export function registerCoreTools(mcpServer: McpServer) {
     "manage_stock_histories_sync",
     {
       description:
-        "Pusat kendali untuk mengelola sinkronisasi data riwayat saham (stock histories) emiten di background runner (mulai, jeda, cek status progress, atau reset status).",
+        "Mengontrol runner sinkronisasi data histori emiten di background (start, pause, status, atau reset).",
       inputSchema: {
         action: z
           .enum(["start", "pause", "status", "reset"])
           .describe(
             "Aksi kontrol: 'start' (mulai), 'pause' (jeda), 'status' (cek progress), 'reset' (reset agar bisa sync ulang)",
           ),
-        ticker: z
+        code: z
           .string()
           .optional()
           .describe(
@@ -22,9 +22,9 @@ export function registerCoreTools(mcpServer: McpServer) {
           ),
       },
     },
-    async ({ action, ticker }) => {
+    async ({ action, code }) => {
       const { stockHistoriesSyncState, syncStockHistories } =
-        await import("../services/scraperService/syncStockHistories");
+        await import("../services/syncStockService/syncStockHistories");
 
       if (action === "start") {
         if (stockHistoriesSyncState.isActive) {
@@ -77,17 +77,17 @@ export function registerCoreTools(mcpServer: McpServer) {
       if (action === "reset") {
         const db = (await import("../db")).default;
 
-        if (ticker) {
-          const cleanTicker = ticker.trim().toUpperCase();
+        if (code) {
+          const cleanCode = code.trim().toUpperCase();
           db.query(
             "UPDATE emiten SET is_fundamental_complete = 0 WHERE ticker = ?",
-          ).run(cleanTicker);
+          ).run(cleanCode);
 
           return {
             content: [
               {
                 type: "text",
-                text: `[SUCCESS] Status stock histories emiten '${cleanTicker}' berhasil direset ke 0. Siap untuk di-sync ulang.`,
+                text: `[SUCCESS] Status stock histories emiten '${cleanCode}' berhasil direset ke 0. Siap untuk di-sync ulang.`,
               },
             ],
           };
@@ -138,12 +138,148 @@ export function registerCoreTools(mcpServer: McpServer) {
     },
   );
 
+  // --- Manajemen Sinkronisasi Background Dividen ---
+  mcpServer.registerTool(
+    "manage_dividend_histories_sync",
+    {
+      description:
+        "Mengontrol runner sinkronisasi data riwayat dividen per event dari TradingView di background (start, pause, status, atau reset).",
+      inputSchema: {
+        action: z
+          .enum(["start", "pause", "status", "reset"])
+          .describe(
+            "Aksi kontrol: 'start' (mulai), 'pause' (jeda), 'status' (cek progress), 'reset' (reset agar bisa sync ulang)",
+          ),
+        code: z
+          .string()
+          .optional()
+          .describe(
+            "Khusus aksi 'reset': Kode emiten spesifik (misal: 'BBCA'). Kosongkan untuk mereset SELURUH emiten.",
+          ),
+      },
+    },
+    async ({ action, code }) => {
+      const { dividendHistoriesSyncState, syncDividendHistories } =
+        await import("../services/syncStockService/syncDividendEvent");
+
+      if (action === "start") {
+        if (dividendHistoriesSyncState.isActive) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "[INFO] Sinkronisasi dividend histories sudah berjalan di background.",
+              },
+            ],
+          };
+        }
+
+        // Jalankan runner secara asynchronous (non-blocking)
+        syncDividendHistories();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: "[SUCCESS] Proses sinkronisasi data dividend histories berhasil dimulai di background.",
+            },
+          ],
+        };
+      }
+
+      if (action === "pause") {
+        if (!dividendHistoriesSyncState.isActive) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "[INFO] Sinkronisasi dividend histories saat ini sedang tidak aktif.",
+              },
+            ],
+          };
+        }
+
+        dividendHistoriesSyncState.isActive = false;
+        return {
+          content: [
+            {
+              type: "text",
+              text: "[INFO] Sinyal jeda dikirim. Proses akan berhenti setelah emiten yang sedang berjalan selesai.",
+            },
+          ],
+        };
+      }
+
+      if (action === "reset") {
+        const db = (await import("../db")).default;
+
+        if (code) {
+          const cleanCode = code.trim().toUpperCase();
+          db.query(
+            "UPDATE emiten SET is_dividend_complete = 0 WHERE code = ?",
+          ).run(cleanCode);
+
+          return {
+            content: [
+              {
+                type: "text",
+                text: `[SUCCESS] Status dividend histories emiten '${cleanCode}' berhasil direset ke 0. Siap untuk di-sync ulang.`,
+              },
+            ],
+          };
+        }
+
+        // Reset seluruh emiten jika code tidak diisi
+        db.query("UPDATE emiten SET is_dividend_complete = 0").run();
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: "[SUCCESS] Seluruh status dividend histories emiten berhasil direset ke 0. Siap untuk di-sync ulang dari awal.",
+            },
+          ],
+        };
+      }
+
+      // Action: 'status'
+      const db = (await import("../db")).default;
+      const queueCount =
+        (
+          db
+            .query(
+              "SELECT COUNT(*) as count FROM emiten WHERE is_dividend_complete = 0",
+            )
+            .get() as { count: number }
+        )?.count ?? 0;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                is_active: dividendHistoriesSyncState.isActive,
+                unprocessed_emiten_count: queueCount,
+                status: dividendHistoriesSyncState.isActive
+                  ? "Sedang berjalan"
+                  : "Idle / Tertunda",
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
   // --- Manajemen Log Sistem ---
   mcpServer.registerTool(
     "manage_system_logs",
     {
       description:
-        "Membaca, mendaftar file log, atau membersihkan log sistem Saham Point.",
+        "Mengelola log sistem Saham Point (membaca isi log, melihat daftar file log, atau membersihkan log lama).",
       inputSchema: {
         action: z
           .enum(["show", "list", "clean"])

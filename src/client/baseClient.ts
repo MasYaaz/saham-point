@@ -4,11 +4,21 @@ import { log } from "../utils/log";
  * Generik Base HTTP Client dengan retry mechanism & safe logging.
  */
 export default abstract class BaseClient {
-  /** Standard User-Agent header */
+  /** Header browser modern lengkap untuk menghindari throttling/WAF server */
   protected readonly defaultHeaders: Record<string, string> = {
     "User-Agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
+    Accept: "application/json, text/plain, */*",
+    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Cache-Control": "no-cache",
+    Pragma: "no-cache",
+    "Sec-Ch-Ua":
+      '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
   };
 
   /**

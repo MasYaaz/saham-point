@@ -23,7 +23,7 @@ export interface FullStockMetrics {
   free_cash_flow: number | null;
 }
 
-export interface FullHistoryResult {
+interface FullHistoryResult {
   symbol: string;
   by_quarter: Record<string, FullStockMetrics>;
   by_fy: Record<string, FullStockMetrics>;
