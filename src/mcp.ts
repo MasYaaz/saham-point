@@ -10,6 +10,7 @@ import { registerScreenerTools } from "./mcp/screenerTools";
 import { registerStockTools } from "./mcp/stockTools";
 import { log } from "./utils/log";
 import { registerMarketTools } from "./mcp/marketTools";
+import { registerAnalyzerTools } from "./mcp/analyzerTools";
 
 /* ============================================================================
  * ENVIRONMENT INITIALIZATION (Native Bun Engine)
@@ -55,6 +56,7 @@ export function createMcpServer(): McpServer {
   registerMarketTools(mcpServer);
   registerBandarmologyTools(mcpServer);
   registerScreenerTools(mcpServer);
+  registerAnalyzerTools(mcpServer);
 
   return mcpServer;
 }

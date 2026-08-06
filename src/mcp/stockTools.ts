@@ -18,7 +18,7 @@ export function registerStockTools(mcpServer: McpServer) {
       },
     },
     async ({ query, limit }) => {
-      const { searchEmiten } = await import("../services/sahamService");
+      const { searchEmiten } = await import("../services/stockService");
       const results = searchEmiten(query, limit);
 
       if (!results || results.length === 0) {
@@ -123,7 +123,7 @@ export function registerStockTools(mcpServer: McpServer) {
       },
     },
     async ({ code }) => {
-      const { getEmitenProfile } = await import("../services/sahamService");
+      const { getEmitenProfile } = await import("../services/stockService");
       const data = getEmitenProfile(code);
 
       if (!data) {

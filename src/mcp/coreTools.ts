@@ -160,7 +160,7 @@ export function registerCoreTools(mcpServer: McpServer) {
     },
     async ({ action, code }) => {
       const { dividendHistoriesSyncState, syncDividendHistories } =
-        await import("../services/syncStockService/syncDividendEvent");
+        await import("../services/syncStockService/syncDividendHistories");
 
       if (action === "start") {
         if (dividendHistoriesSyncState.isActive) {

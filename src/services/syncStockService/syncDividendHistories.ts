@@ -19,11 +19,9 @@ export interface DailyDividendSyncResult {
 // Prepared Statement Reusable untuk Insert/Replace Event Dividen
 const insertStmt = db.prepare(`
   INSERT OR REPLACE INTO dividend_histories (
-    emiten_id, year, type, cash_dividend, ex_date, record_date, payment_date,
-    created_at, updated_at
+    emiten_id, year, type, cash_dividend, ex_date, record_date, payment_date
   ) VALUES (
-    ?, ?, ?, ?, ?, ?, ?,
-    datetime('now'), datetime('now')
+    ?, ?, ?, ?, ?, ?, ?
   )
 `);
 

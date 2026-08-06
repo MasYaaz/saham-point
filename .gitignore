@@ -45,3 +45,5 @@ data/test
 .saham-point/data/saham.db-shm
 .saham-point/data/saham.db-wal
 .saham-point/logs
+
+meta.json

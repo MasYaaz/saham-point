@@ -282,7 +282,7 @@ export function registerMarketTools(mcpServer: McpServer) {
       },
     },
     async ({ name }) => {
-      const { getEmitenBySector } = await import("../services/sektorService");
+      const { getEmitenBySector } = await import("../services/stockService");
 
       try {
         const result = getEmitenBySector(name);

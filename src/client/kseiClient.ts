@@ -52,10 +52,10 @@ export class KseiClient extends BaseClient {
     maxAttempts = 5,
   ): Promise<T | null> {
     try {
-      // 1. Eksekusi request via HTTP fetcher bawaan BaseClient
+      // Eksekusi request via HTTP fetcher bawaan BaseClient
       const res = await this.fetcherUrl(url, options, maxAttempts);
 
-      // 2. Tangani respons HTTP bermasalah (status code non-2xx)
+      // Tangani respons HTTP bermasalah (status code non-2xx)
       if (!res.ok) {
         let errorBody = "";
         try {
@@ -119,7 +119,7 @@ export class KseiClient extends BaseClient {
   ): Promise<KseiCorporateActionItem[]> {
     let isShuttingDown = false;
 
-    // 1. Inisialisasi listener graceful shutdown untuk menangani interupsi proses
+    // Inisialisasi listener graceful shutdown untuk menangani interupsi proses
     process.once("SIGINT", () => {
       isShuttingDown = true;
     });
@@ -127,13 +127,13 @@ export class KseiClient extends BaseClient {
       isShuttingDown = true;
     });
 
-    // 2. Dapatkan daftar hari kerja (senin - jumat) dalam rentang tanggal
+    // Dapatkan daftar hari kerja (senin - jumat) dalam rentang tanggal
     const dates = getWeekdaysInRange(startDate, endDate);
 
-    log(
-      "info",
-      `[KseiClient] Memproses ${dates.length} hari kerja (${startDate} s/d ${endDate})...`,
-    );
+    // log(
+    //   "info",
+    //   `[KseiClient] Memproses ${dates.length} hari kerja (${startDate} s/d ${endDate})...`,
+    // );
 
     if (dates.length === 0) {
       log(
@@ -145,7 +145,7 @@ export class KseiClient extends BaseClient {
 
     const allData: KseiCorporateActionItem[] = [];
 
-    // 3. Eksekusi pengunduhan data per batch
+    // Eksekusi pengunduhan data per batch
     for (let i = 0; i < dates.length; i += batchSize) {
       if (isShuttingDown) {
         log(
@@ -157,10 +157,10 @@ export class KseiClient extends BaseClient {
 
       const chunk = dates.slice(i, i + batchSize);
 
-      log(
-        "info",
-        `[KseiClient] Fetching batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(dates.length / batchSize)} (${chunk[0]} s/d ${chunk[chunk.length - 1]})...`,
-      );
+      // log(
+      //   "info",
+      //   `[KseiClient] Fetching batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(dates.length / batchSize)} (${chunk[0]} s/d ${chunk[chunk.length - 1]})...`,
+      // );
 
       // Eksekusi request HTTP paralel untuk batch saat ini
       const promises = chunk.map((date) => this.fetchByDate(date));
@@ -172,7 +172,7 @@ export class KseiClient extends BaseClient {
         }
       }
 
-      // 4. Berikan jeda antar-batch untuk menghindari pembatasan rate limit KSEI
+      // Berikan jeda antar-batch untuk menghindari pembatasan rate limit KSEI
       if (i + batchSize < dates.length) {
         await this.wait(200);
       }

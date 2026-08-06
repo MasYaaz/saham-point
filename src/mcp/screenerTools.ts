@@ -80,24 +80,69 @@ export function registerScreenerTools(mcpServer: McpServer) {
     },
   );
 
-  // --- Screener: Dividend Hunters ---
+  // --- Screener: Dividen ---
   mcpServer.registerTool(
-    "screener_dividend_hunters",
+    "screener_dividends",
     {
       description:
-        "Screener untuk memburu saham dengan Dividend Yield tinggi dan tingkat utang sehat (DER <= 1.5).",
+        "Screener saham dividen berdasarkan TTM Yield riil, Dividend Payout Ratio (DPR) untuk cegah Dividend Trap, Dividend Streak (konsistensi), dan rasio utang (DER).",
       inputSchema: {
-        min_yield: z.number().optional().default(5.0),
-        limit: z.number().optional().default(25),
+        min_yield: z
+          .number()
+          .optional()
+          .default(5.0)
+          .describe("Minimal TTM Dividend Yield (%)"),
+        max_dpr: z
+          .number()
+          .optional()
+          .default(100.0)
+          .describe("Maksimal Payout Ratio (%) untuk mencegah Dividend Trap"),
+        min_streak: z
+          .number()
+          .optional()
+          .default(3)
+          .describe("Minimal tahun berturut-turut membagikan dividen"),
+        max_der: z
+          .number()
+          .optional()
+          .default(1.5)
+          .describe("Maksimal Debt to Equity Ratio (DER)"),
+        limit: z
+          .number()
+          .optional()
+          .default(25)
+          .describe("Jumlah maksimal emiten yang ditampilkan"),
       },
     },
-    async ({ min_yield, limit }) => {
-      const { getDividendHunters } =
-        await import("../services/screenerServices/DividendHunter");
-      const result = getDividendHunters({ minYield: min_yield, limit });
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
+    async ({ min_yield, max_dpr, min_streak, max_der, limit }) => {
+      try {
+        const { screenDividends } =
+          await import("../services/screenerServices/Dividend");
+
+        const result = screenDividends({
+          minYield: min_yield,
+          maxDpr: max_dpr,
+          minStreak: min_streak,
+          maxDer: max_der,
+          limit,
+        });
+
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `[ERROR] Gagal menjalankan screener_dividends: ${errorMessage}`,
+            },
+          ],
+        };
+      }
     },
   );
 

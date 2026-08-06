@@ -3,20 +3,23 @@ import kseiClient, {
 } from "../../client/kseiClient";
 import db from "../../db";
 import { getDateWithOffset } from "../../utils/date/getDayWithOffset";
+import { syncDailyDividendFromCA } from "./syncDividendHistories";
 
 /**
- * Mengunduh, memfilter, dan menyimpan data aksi korporasi saham dari KSEI ke database.
+ * Mengunduh, memfilter, dan menyimpan data Aksi Korporasi dari API KSEI ke database,
+ * serta memicu sinkronisasi riwayat dividen TradingView secara otomatis (Event-Driven).
  *
  * Fitur Utama:
  * - Smart Checkpointing via tabel `sync_ca_history`.
- * - Regex Filtering (hanya menyimpan emiten saham 4-huruf kapital).
- * - Batch Transaction dengan deduplikasi otomatis (`INSERT OR IGNORE`).
- * - Audit logging untuk memantau status eksekusi.
+ * - Filtering instrumen saham (hanya kode 4 huruf kapital A-Z).
+ * - Batch Transaction SQLite dengan deduplikasi (`INSERT OR IGNORE`).
+ * - Event-Driven Trigger ke TradingView WebSocket (hanya untuk pengumuman dividen baru).
+ * - Audit Logging untuk pemantauan riwayat eksekusi.
  *
- * @returns Ringkasan hasil sinkronisasi (Total API, Total Lolos Filter, Total Disimpan)
+ * @returns {Promise<string>} Ringkasan terstruktur hasil sinkronisasi.
  */
 export async function syncCorporateActions(): Promise<string> {
-  // 1. Dapatkan tanggal hari ini dalam format ISO (YYYY-MM-DD)
+  // 1. Inisialisasi Waktu & Checkpoint Tanggal
   const currentYear = new Date().getFullYear();
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
@@ -24,7 +27,7 @@ export async function syncCorporateActions(): Promise<string> {
     "0",
   )}-${String(now.getDate()).padStart(2, "0")}`;
 
-  // 2. Ambil checkpoint tanggal sync terakhir yang berhasil dari database
+  // Ambil checkpoint tanggal sinkronisasi terakhir yang berhasil dari database
   const lastSyncRow = db
     .query(
       `
@@ -39,33 +42,38 @@ export async function syncCorporateActions(): Promise<string> {
 
   const lastSyncedDate = lastSyncRow?.last_synced_date || null;
 
-  // 3. Tentukan mode & rentang tanggal fetching (Initial, Catch-Up, atau Routine Sync)
+  // 2. Penentuan Mode Sinkronisasi & Rentang Tanggal Fetching
   let startDate: string;
   let endDate: string;
+  let syncMode: "INITIAL" | "CATCH_UP" | "ROUTINE";
 
   if (!lastSyncedDate) {
-    // Mode Initial Sync: Data kosong, fetch dari 1 Jan 2015 s/d akhir tahun ini
+    // Mode Initial: Data kosong, fetch dari 1 Jan 2015 s/d akhir tahun berjalan
+    syncMode = "INITIAL";
     startDate = "2015-01-01";
     endDate = `${currentYear}-12-31`;
   } else if (lastSyncedDate < today) {
-    // Mode Catch-Up Sync: Melanjutkan sync dari checkpoint terakhir s/d akhir tahun ini
+    // Mode Catch-Up: Melanjutkan dari checkpoint terakhir s/d akhir tahun berjalan
+    syncMode = "CATCH_UP";
     startDate = lastSyncedDate;
     endDate = `${currentYear}-12-31`;
   } else {
-    // Mode Routine Sync: Sudah up-to-date, fetch window H-7 s/d H+90
+    // Mode Routine: Sudah up-to-date, fetch window H-7 s/d H+90
+    syncMode = "ROUTINE";
     startDate = getDateWithOffset(-7);
     endDate = getDateWithOffset(90);
   }
 
   try {
-    // 4. Pengambilan data raw dari API KSEI
+    // 3. Pengambilan Data Raw dari API KSEI
     const items = await kseiClient.fetchByDateRange(startDate, endDate);
 
     let totalInserted = 0;
     let filteredCount = 0;
+    let divSummary = " | Dividen TV: Tidak ada event baru";
 
     if (items.length > 0) {
-      // 5. Filter instrumen: Hanya amankan kode saham murni 4 huruf kapital (A-Z)
+      // 4. Filtering Instrumen: Amankan hanya saham murni (4 huruf kapital A-Z)
       const stockItems = items.filter((item) => {
         if (!item.security_code) return false;
         return /^[A-Z]{4}$/.test(item.security_code.trim());
@@ -74,7 +82,7 @@ export async function syncCorporateActions(): Promise<string> {
       filteredCount = stockItems.length;
 
       if (stockItems.length > 0) {
-        // Prepare Statement untuk penyimpanan massal
+        // Prepared Statement Batch Insert
         const stmt = db.prepare(`
           INSERT OR IGNORE INTO corporate_actions (
             security_code,
@@ -91,7 +99,10 @@ export async function syncCorporateActions(): Promise<string> {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
-        // Execusi batch insert dalam satu database transaction
+        // Penampung emiten yang BENAR-BENAR BARU tersimpan & bertipe dividen
+        const newDividendTickers = new Set<string>();
+
+        // 5. Eksekusi Batch Insert dalam Transaksi SQLite
         const runBatchInsert = db.transaction(
           (dataList: KseiCorporateActionItem[]) => {
             let count = 0;
@@ -110,8 +121,17 @@ export async function syncCorporateActions(): Promise<string> {
                 item.description || "",
               );
 
+              // Kumpulkan ticker HANYA jika record baru berhasil disisipkan (changes > 0)
               if (result.changes > 0) {
                 count++;
+                const type = (item.type_of_ca || "").toUpperCase();
+                if (type.includes("DIVIDEND") || type.includes("DIVIDEN")) {
+                  if (item.security_code) {
+                    newDividendTickers.add(
+                      item.security_code.trim().toUpperCase(),
+                    );
+                  }
+                }
               }
             }
             return count;
@@ -119,10 +139,23 @@ export async function syncCorporateActions(): Promise<string> {
         );
 
         totalInserted = runBatchInsert(stockItems);
+
+        // 6. Trigger Event-Driven Sync Dividen TradingView (Khusus Ticker Baru)
+        if (newDividendTickers.size > 0) {
+          const targetArray = Array.from(newDividendTickers);
+          const divResult = await syncDailyDividendFromCA(targetArray);
+
+          const syncedList =
+            divResult.syncedCodes.length > 0
+              ? ` (${divResult.syncedCodes.join(", ")})`
+              : "";
+
+          divSummary = ` | Dividen TV Baru: ${divResult.successCount}/${divResult.totalTarget} emiten dikirim${syncedList}`;
+        }
       }
     }
 
-    // 6. Hitung checkpoint tanggal baru dan rekam audit log SUKSES
+    // 7. Perbarui Checkpoint Tanggal & Simpan Audit Log (Status: SUCCESS)
     const newCheckpointDate = endDate < today ? endDate : today;
 
     db.prepare(
@@ -138,11 +171,11 @@ export async function syncCorporateActions(): Promise<string> {
     `,
     ).run(newCheckpointDate, items.length, totalInserted);
 
-    return `Total API: ${items.length} | Saham 4-Huruf: ${filteredCount} | Disimpan: ${totalInserted}`;
+    return `[SYNC CA KSEI - ${syncMode}] Periode: ${startDate} s/d ${endDate} | Raw API: ${items.length} | Saham Lolos: ${filteredCount} | CA Baru: ${totalInserted}${divSummary}`;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
 
-    // Rekam audit log GAGAL (Checkpoint tanggal tidak dimajukan)
+    // 8. Simpan Audit Log (Status: FAILED) Tanpa Memajukan Checkpoint Tanggal
     db.prepare(
       `
       INSERT INTO sync_ca_history (
