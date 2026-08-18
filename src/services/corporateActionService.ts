@@ -3,7 +3,7 @@ import db from "../db";
 /**
  * Model data record aksi korporasi yang tersimpan di database.
  */
-interface CorporateActionRecord {
+export interface CorporateActionRecord {
   id: number;
   security_code: string;
   security_name: string;
@@ -16,14 +16,12 @@ interface CorporateActionRecord {
   end_date: string;
   distribution_date: string;
   description: string;
-  created_at: string;
-  updated_at: string;
 }
 
 /**
  * Opsi filter untuk pencarian fleksibel aksi korporasi.
  */
-interface CorporateActionFilterOptions {
+export interface CorporateActionFilterOptions {
   securityCode?: string;
   typeOfCa?: string;
   startDate?: string;
@@ -32,16 +30,22 @@ interface CorporateActionFilterOptions {
   offset?: number;
 }
 
-/**
- * Service Data Access Object (DAO) untuk membaca data aksi korporasi dari database.
- */
 export class CorporateActionService {
   /**
+   * Helper ekspresi SQL untuk sorting tanggal paling relevan.
+   */
+  private readonly dateSortExpr = `
+    CASE
+      WHEN record_date != '' THEN record_date
+      WHEN cum_date != '' THEN cum_date
+      WHEN effective_date != '' THEN effective_date
+      WHEN distribution_date != '' THEN distribution_date
+      ELSE id
+    END
+  `;
+
+  /**
    * Mengambil daftar aksi korporasi untuk satu emiten tertentu.
-   *
-   * @param securityCode Kode emiten saham (contoh: 'BBCA', 'TLKM')
-   * @param limit Jumlah maksimal record yang dikembalikan (default: 50)
-   * @returns Array data aksi korporasi terurut dari tanggal terbaru
    */
   getBySecurityCode(securityCode: string, limit = 50): CorporateActionRecord[] {
     const code = securityCode.trim().toUpperCase();
@@ -51,9 +55,7 @@ export class CorporateActionService {
         SELECT *
         FROM corporate_actions
         WHERE security_code = ?
-        ORDER BY
-          CASE WHEN record_date != '' THEN record_date ELSE cum_date END DESC,
-          id DESC
+        ORDER BY ${this.dateSortExpr} DESC, id DESC
         LIMIT ?
       `,
       )
@@ -61,11 +63,7 @@ export class CorporateActionService {
   }
 
   /**
-   * Mengambil data aksi korporasi berdasarkan rentang tanggal `record_date` (cocok untuk tampilan Kalender).
-   *
-   * @param startDate Tanggal awal rentang ISO string 'YYYY-MM-DD'
-   * @param endDate Tanggal akhir rentang ISO string 'YYYY-MM-DD'
-   * @returns Array aksi korporasi dalam rentang tanggal
+   * Mengambil data aksi korporasi berdasarkan rentang tanggal.
    */
   getByDateRange(startDate: string, endDate: string): CorporateActionRecord[] {
     return db
@@ -73,18 +71,26 @@ export class CorporateActionService {
         `
         SELECT *
         FROM corporate_actions
-        WHERE record_date >= ? AND record_date <= ?
-        ORDER BY record_date ASC, security_code ASC
+        WHERE (
+          (record_date != '' AND record_date >= ? AND record_date <= ?) OR
+          (record_date = '' AND cum_date != '' AND cum_date >= ? AND cum_date <= ?) OR
+          (record_date = '' AND cum_date = '' AND effective_date != '' AND effective_date >= ? AND effective_date <= ?)
+        )
+        ORDER BY ${this.dateSortExpr} ASC, security_code ASC
       `,
       )
-      .all(startDate, endDate) as CorporateActionRecord[];
+      .all(
+        startDate,
+        endDate,
+        startDate,
+        endDate,
+        startDate,
+        endDate,
+      ) as CorporateActionRecord[];
   }
 
   /**
-   * Mengambil agenda aksi korporasi mendatang (Upcoming Events) mulai hari ini hingga N hari ke depan.
-   *
-   * @param daysAhead Jumlah hari masa depan yang diproyeksikan (default: 30 hari)
-   * @returns Array aksi korporasi mendatang terurut dari tanggal terdekat
+   * Mengambil agenda aksi korporasi mendatang (Upcoming Events).
    */
   getUpcomingActions(daysAhead = 30): CorporateActionRecord[] {
     const now = new Date();
@@ -94,25 +100,16 @@ export class CorporateActionService {
     future.setDate(now.getDate() + daysAhead);
     const targetDate = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, "0")}-${String(future.getDate()).padStart(2, "0")}`;
 
-    return db
-      .query(
-        `
-        SELECT *
-        FROM corporate_actions
-        WHERE record_date >= ? AND record_date <= ?
-        ORDER BY record_date ASC, security_code ASC
-      `,
-      )
-      .all(today, targetDate) as CorporateActionRecord[];
+    return this.getByDateRange(today, targetDate);
   }
 
   /**
    * Mengambil khusus riwayat dividen untuk satu saham spesifik.
-   *
-   * @param securityCode Kode emiten saham (contoh: 'BBCA')
-   * @returns Array aksi korporasi bertipe Dividen
    */
-  getDividendHistory(securityCode: string): CorporateActionRecord[] {
+  getDividendHistory(
+    securityCode: string,
+    limit = 50,
+  ): CorporateActionRecord[] {
     const code = securityCode.trim().toUpperCase();
     return db
       .query(
@@ -121,17 +118,15 @@ export class CorporateActionService {
         FROM corporate_actions
         WHERE security_code = ?
           AND (type_of_ca LIKE '%DIVIDEND%' OR type_of_ca LIKE '%DIVIDEN%')
-        ORDER BY record_date DESC
+        ORDER BY ${this.dateSortExpr} DESC, id DESC
+        LIMIT ?
       `,
       )
-      .all(code) as CorporateActionRecord[];
+      .all(code, limit) as CorporateActionRecord[];
   }
 
   /**
-   * Pencarian dinamis aksi korporasi dengan kriteria filter opsional dan paginasi.
-   *
-   * @param options Parameter opsi filter dan pagination
-   * @returns Objek berisi array data dan total baris terfilter
+   * Pencarian dinamis aksi korporasi dengan kriteria filter fleksibel dan paginasi.
    */
   findMany(options: CorporateActionFilterOptions = {}): {
     data: CorporateActionRecord[];
@@ -149,31 +144,42 @@ export class CorporateActionService {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
-    // Construct klausa WHERE secara dinamis
-    if (securityCode) {
+    if (securityCode && securityCode.trim() !== "") {
       conditions.push("security_code = ?");
       params.push(securityCode.trim().toUpperCase());
     }
 
-    if (typeOfCa) {
-      conditions.push("type_of_ca = ?");
-      params.push(typeOfCa);
+    if (typeOfCa && typeOfCa.trim() !== "") {
+      conditions.push("type_of_ca LIKE ?");
+      params.push(`%${typeOfCa.trim().toUpperCase()}%`);
     }
 
-    if (startDate) {
-      conditions.push("record_date >= ?");
-      params.push(startDate);
+    if (startDate && startDate.trim() !== "") {
+      conditions.push(`
+        (
+          (record_date != '' AND record_date >= ?) OR
+          (record_date = '' AND cum_date != '' AND cum_date >= ?) OR
+          (record_date = '' AND cum_date = '' AND effective_date != '' AND effective_date >= ?)
+        )
+      `);
+      params.push(startDate, startDate, startDate);
     }
 
-    if (endDate) {
-      conditions.push("record_date <= ?");
-      params.push(endDate);
+    if (endDate && endDate.trim() !== "") {
+      conditions.push(`
+        (
+          (record_date != '' AND record_date <= ?) OR
+          (record_date = '' AND cum_date != '' AND cum_date <= ?) OR
+          (record_date = '' AND cum_date = '' AND effective_date != '' AND effective_date <= ?)
+        )
+      `);
+      params.push(endDate, endDate, endDate);
     }
 
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    // 1. Hitung total records untuk paginasi UI
+    // 1. Hitung total baris yang cocok
     const countResult = db
       .query(`SELECT COUNT(*) as count FROM corporate_actions ${whereClause}`)
       .get(...params) as { count: number } | null;
@@ -187,11 +193,17 @@ export class CorporateActionService {
         SELECT *
         FROM corporate_actions
         ${whereClause}
-        ORDER BY record_date DESC, id DESC
+        ORDER BY ${this.dateSortExpr} DESC, id DESC
         LIMIT ? OFFSET ?
       `,
       )
       .all(...params, limit, offset) as CorporateActionRecord[];
+
+    console.error(
+      "DEBUG SQL:",
+      `SELECT * FROM corporate_actions ${whereClause}`,
+    );
+    console.error("DEBUG PARAMS:", params);
 
     return { data, total };
   }

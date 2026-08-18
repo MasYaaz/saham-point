@@ -23,62 +23,61 @@ export function registerMarketTools(mcpServer: McpServer) {
     "get_corporate_actions",
     {
       description:
-        "Mengambil agenda dan riwayat aksi korporasi emiten (Dividen, Stock Split, Rights Issue, RUPS, Saham Bonus, Buyback, dll).",
+        "Mengambil agenda dan riwayat aksi korporasi resmi emiten BEI/KSEI (Dividen Tunai/Saham, HMETD/Rights Issue, RUPS/Proxy Voting, Konversi Waran/Obligasi, dan Redemption).",
       inputSchema: {
         code: z
           .string()
           .transform((v) => v.trim().toUpperCase())
           .optional()
           .describe(
-            "Kode ticker saham BEI/IDX opsional (contoh: BBCA, TLKM). Kosongkan jika ingin mencari di seluruh emiten.",
+            "Kode ticker 4 huruf saham BEI/IDX (contoh: BBCA, TLKM, ASII). Kosongkan jika ingin mengambil jadwal aksi korporasi seluruh emiten.",
           ),
         actionType: z
           .enum([
-            "DIVIDEND",
-            "STOCK_SPLIT",
-            "REVERSE_STOCK",
-            "RIGHTS_ISSUE",
-            "TANPA_HMETD",
-            "ESOP_MSOP",
-            "BONUS",
-            "IPO",
-            "LISTING",
-            "DELISTING",
-            "WARRANT",
-            "MERGER",
-            "CAPITAL_REDUCTION",
-            "CONVERSION",
-            "BUYBACK",
-            "PRIVATE_PLACEMENT",
-            "RUPS",
-            "OTHER",
+            "CASH DIVIDEND",
+            "MANDATORY CONVERSION",
+            "MIXED DIVIDEND",
+            "PROXY VOTING",
+            "REDEMPTION",
+            "RIGHT DISTRIBUTION",
+            "STOCK DIVIDEND",
+            "VOLUNTARY CONVERSION",
           ])
           .optional()
           .describe(
-            "Jenis aksi korporasi yang ingin difilter (opsional). Contoh: 'DIVIDEND', 'STOCK_SPLIT', 'RUPS'.",
+            "Filter jenis aksi korporasi spesifik berdasarkan standar KSEI:\n" +
+              "- 'CASH DIVIDEND': Pembagian dividen tunai\n" +
+              "- 'STOCK DIVIDEND': Pembagian dividen berupa saham\n" +
+              "- 'MIXED DIVIDEND': Pembagian dividen campuran (tunai & saham)\n" +
+              "- 'RIGHT DISTRIBUTION': Distribusi HMETD / Rights Issue\n" +
+              "- 'PROXY VOTING': Pemungutan suara RUPST / RUPSLB\n" +
+              "- 'REDEMPTION': Pelunasan / penebusan efek atau obligasi\n" +
+              "- 'MANDATORY CONVERSION': Konversi efek wajib (misal: obligasi wajib konversi)\n" +
+              "- 'VOLUNTARY CONVERSION': Konversi efek sukarela (misal: exercise Waran)",
           ),
         fromDate: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/, "Format tanggal harus YYYY-MM-DD")
           .optional()
           .describe(
-            "Tanggal awal pencatatan dengan format YYYY-MM-DD (opsional, contoh: '2026-01-01').",
+            "Batas awal tanggal pencatatan/recording date (format: YYYY-MM-DD, contoh: '2026-01-01').",
           ),
         toDate: z
           .string()
           .regex(/^\d{4}-\d{2}-\d{2}$/, "Format tanggal harus YYYY-MM-DD")
           .optional()
           .describe(
-            "Tanggal akhir pencatatan dengan format YYYY-MM-DD (opsional, contoh: '2026-12-31').",
+            "Batas akhir tanggal pencatatan/recording date (format: YYYY-MM-DD, contoh: '2026-12-31').",
           ),
         limit: z
           .number()
+          .int()
           .min(1)
           .max(500)
           .optional()
           .default(100)
           .describe(
-            "Batas maksimal jumlah data yang dikembalikan (default: 100).",
+            "Batas maksimal jumlah baris data yang diambil (default: 100, maks: 500).",
           ),
       },
     },
@@ -88,77 +87,51 @@ export function registerMarketTools(mcpServer: McpServer) {
           await import("../services/corporateActionService")
         ).default;
 
-        // 1. Ambil data dari database menggunakan service
-        const { data } = corporateActionService.findMany({
+        // 1. Delegasikan parameter filtering (termasuk typeOfCa) langsung ke Database Service
+        const { data, total } = corporateActionService.findMany({
           securityCode: code,
+          typeOfCa: actionType,
           startDate: fromDate,
           endDate: toDate,
           limit: limit ?? 100,
         });
 
-        // 2. Pengelompokan data berdasarkan kategori aksi korporasi
+        // 2. Pengelompokan data ke dalam kategori terstruktur
         const categorized = {
-          dividends: [] as typeof data,
-          stockSplits: [] as typeof data,
-          rightsIssues: [] as typeof data,
-          esopMsop: [] as typeof data,
-          bonuses: [] as typeof data,
-          warrants: [] as typeof data,
-          buybacks: [] as typeof data,
-          privatePlacements: [] as typeof data,
-          rups: [] as typeof data,
+          cashDividends: [] as typeof data,
+          stockDividends: [] as typeof data,
+          mixedDividends: [] as typeof data,
+          rightDistributions: [] as typeof data,
+          proxyVotings: [] as typeof data,
+          redemptions: [] as typeof data,
+          mandatoryConversions: [] as typeof data,
+          voluntaryConversions: [] as typeof data,
           otherActions: [] as typeof data,
         };
 
         for (const item of data) {
           const caType = (item.type_of_ca || "").toUpperCase();
 
-          if (caType.includes("DIVIDEND") || caType.includes("DIVIDEN")) {
-            categorized.dividends.push(item);
-          } else if (caType.includes("SPLIT")) {
-            categorized.stockSplits.push(item);
-          } else if (caType.includes("RIGHT") || caType.includes("HMETD")) {
-            categorized.rightsIssues.push(item);
-          } else if (caType.includes("ESOP") || caType.includes("MSOP")) {
-            categorized.esopMsop.push(item);
-          } else if (caType.includes("BONUS")) {
-            categorized.bonuses.push(item);
-          } else if (caType.includes("WARRANT") || caType.includes("WARAN")) {
-            categorized.warrants.push(item);
-          } else if (caType.includes("BUYBACK")) {
-            categorized.buybacks.push(item);
-          } else if (
-            caType.includes("PRIVATE") ||
-            caType.includes("PLACEMENT")
-          ) {
-            categorized.privatePlacements.push(item);
-          } else if (caType.includes("RUPS") || caType.includes("GMS")) {
-            categorized.rups.push(item);
+          if (caType.includes("CASH DIVIDEND")) {
+            categorized.cashDividends.push(item);
+          } else if (caType.includes("STOCK DIVIDEND")) {
+            categorized.stockDividends.push(item);
+          } else if (caType.includes("MIXED DIVIDEND")) {
+            categorized.mixedDividends.push(item);
+          } else if (caType.includes("RIGHT DISTRIBUTION")) {
+            categorized.rightDistributions.push(item);
+          } else if (caType.includes("PROXY VOTING")) {
+            categorized.proxyVotings.push(item);
+          } else if (caType.includes("REDEMPTION")) {
+            categorized.redemptions.push(item);
+          } else if (caType.includes("MANDATORY CONVERSION")) {
+            categorized.mandatoryConversions.push(item);
+          } else if (caType.includes("VOLUNTARY CONVERSION")) {
+            categorized.voluntaryConversions.push(item);
           } else {
             categorized.otherActions.push(item);
           }
         }
-
-        // 3. Filter berdasarkan actionType jika spesifik diminta oleh user
-        if (actionType) {
-          if (actionType === "DIVIDEND") {
-            categorized.stockSplits = [];
-            categorized.rightsIssues = [];
-            categorized.esopMsop = [];
-            categorized.bonuses = [];
-            categorized.warrants = [];
-            categorized.buybacks = [];
-            categorized.privatePlacements = [];
-            categorized.rups = [];
-            categorized.otherActions = [];
-          } else if (actionType === "STOCK_SPLIT") {
-            categorized.dividends = [];
-            categorized.rightsIssues = [];
-            // ...bersihkan array kategori lain jika jenis spesifik dipilih
-          }
-        }
-
-        const totalActions = data.length;
 
         return {
           content: [
@@ -171,8 +144,9 @@ export function registerMarketTools(mcpServer: McpServer) {
                   filterActionType: actionType || "ALL",
                   fromDate: fromDate || null,
                   toDate: toDate || null,
-                  totalActions,
-                  ...categorized,
+                  returnedCount: data.length,
+                  totalMatches: total,
+                  data: categorized,
                 },
                 null,
                 2,
@@ -182,6 +156,7 @@ export function registerMarketTools(mcpServer: McpServer) {
         };
       } catch (error: any) {
         return {
+          isError: true,
           content: [
             {
               type: "text",
@@ -191,7 +166,7 @@ export function registerMarketTools(mcpServer: McpServer) {
                   code: code || "ALL",
                   message:
                     error?.message ||
-                    "Gagal mengambil data aksi korporasi emiten.",
+                    "Terjadi kesalahan saat memproses data aksi korporasi.",
                 },
                 null,
                 2,

@@ -2,6 +2,7 @@ import kseiClient, {
   type KseiCorporateActionItem,
 } from "../../client/kseiClient";
 import db from "../../db";
+import { cleanTimeInDate } from "../../utils/date/cleanTimeInDate";
 import { getDateWithOffset } from "../../utils/date/getDayWithOffset";
 import { syncDailyDividendFromCA } from "./syncDividendHistories";
 
@@ -112,12 +113,12 @@ export async function syncCorporateActions(): Promise<string> {
                 item.security_name || "",
                 item.display_name || "",
                 item.type_of_ca || "",
-                item.cum_date || "",
-                item.record_date || "",
-                item.effective_date || "",
-                item.start_date || "",
-                item.end_date || "",
-                item.distribution_date || "",
+                cleanTimeInDate(item.cum_date) || "",
+                cleanTimeInDate(item.record_date) || "",
+                cleanTimeInDate(item.effective_date) || "",
+                cleanTimeInDate(item.start_date) || "",
+                cleanTimeInDate(item.end_date) || "",
+                cleanTimeInDate(item.distribution_date) || "",
                 item.description || "",
               );
 
@@ -125,7 +126,11 @@ export async function syncCorporateActions(): Promise<string> {
               if (result.changes > 0) {
                 count++;
                 const type = (item.type_of_ca || "").toUpperCase();
-                if (type.includes("DIVIDEND") || type.includes("DIVIDEN")) {
+                if (
+                  type.includes("CASH DIVIDEND") ||
+                  type.includes("STOCK DIVIDEND") ||
+                  type.includes("DIVIDEND")
+                ) {
                   if (item.security_code) {
                     newDividendTickers.add(
                       item.security_code.trim().toUpperCase(),

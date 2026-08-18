@@ -168,8 +168,6 @@ function setupSchema(database: Database): void {
        distribution_date TEXT NOT NULL DEFAULT '',
 
        description TEXT NOT NULL DEFAULT '',
-       created_at TEXT NOT NULL DEFAULT '',
-       updated_at TEXT NOT NULL DEFAULT '',
 
        -- Mencegah duplikasi data saat sync berulang
        UNIQUE(security_code, type_of_ca, record_date, distribution_date)
