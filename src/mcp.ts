@@ -106,7 +106,7 @@ async function startMcpServer(): Promise<void> {
   // 2. Inisialisasi background worker sebagai Child Process
   setTimeout(() => {
     try {
-      const workerPath = path.resolve(import.meta.dir, "./worker.ts");
+      const workerPath = path.resolve(import.meta.dir, "./worker");
 
       workerProcess = spawn("bun", ["run", workerPath], {
         stdio: "ignore", // Hindari pencemaran STDIO
