@@ -1,15 +1,15 @@
 {
   "name": "saham-point",
-  "module": "src/index.ts",
+  "module": "src/mcp.ts",
   "type": "module",
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.6.1",
     "@types/node-cron": "^3.0.11"
   },
   "scripts": {
-    "start": "bun run src/index.ts",
+    "start": "bun run src/mcp.ts",
     "dev": "bun run --watch src/mcp.ts",
     "build:tar": "rm -rf dist saham-point.tar.gz && mkdir -p dist && bun build ./src/mcp.ts --outfile ./dist/saham-point-mcp --target bun --minify && bun build ./src/worker.ts --outfile ./dist/worker --target bun --minify && chmod +x ./dist/* && tar -czvf saham-point.tar.gz -C dist ."
   },
@@ -17,7 +17,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@clack/prompts": "^1.7.0",
+    "@clack/prompts": "^1.8.1",
     "@extractus/article-extractor": "^8.1.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "node-cron": "^4.6.0",

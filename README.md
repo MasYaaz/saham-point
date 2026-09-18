@@ -1,147 +1,174 @@
-<div align="center">
+# Saham Point
 
-<pre style="color: #83f496; font-weight: bold; background-color: transparent; border: none; margin-bottom: 0;">
-███████╗ █████╗ ██╗  ██╗ █████╗ ███╗   ███╗    ██████╗  ██████╗ ██╗███╗   ██╗████████╗
-██╔════╝██╔══██╗██║  ██║██╔══██╗████╗ ████║    ██╔══██╗██╔═══██╗██║████╗  ██║╚══██╔══╝
-███████╗███████║███████║███████║██╔████╔██║    ██████╔╝██║   ██║██║██╔██╗ ██║   ██║   
-╚════██║██╔══██║██╔══██║██╔══██║██║╚██╔╝██║    ██╔═══╝ ██║   ██║██║██║╚██╗██║   ██║   
-███████║██║  ██║██║  ██║██║  ██║██║ ╚═╝ ██║    ██║     ╚██████╔╝██║██║ ╚████║   ██║   
-╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝    ╚═╝      ╚═════╝ ╚═╝╚═╝  ╚═══╝   ╚═╝   
-</pre>
+MCP server untuk data dan analisis saham Indonesia. Saham Point menggabungkan data IDX/BEI, KSEI, TradingView, Yahoo Finance, Stockbit, dan Google News ke SQLite lokal, lalu mengeksposnya sebagai tool Model Context Protocol untuk AI agent.
 
-### Scrapper Data IHSG & MCP Server untuk Agentic AI
+Saham Point cocok dipakai sebagai data layer lokal untuk analisis emiten IDX: profil saham, laporan keuangan, corporate action, indikator teknikal, screener, dividen, bandarmology, foreign flow, dan berita pasar.
 
-<img src="src/assets/TUI.webp" alt="Tampilan Utama" width="1000">
+> [!NOTE]
+> Dokumentasi teknis lengkap ada di [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) dan [`docs/API_OR_CONTRACTS.md`](docs/API_OR_CONTRACTS.md). Gunakan dua file itu sebagai source of truth saat mengubah arsitektur atau kontrak tool.
 
-</div>
+## Features
 
-Proyek ini adalah aplikasi komprehensif yang berfungsi sebagai **Command Line Interface (CLI)** dan **API Gateway**. Tujuannya adalah untuk mengambil, memproses, dan memantau data pasar saham secara _real-time_ dari berbagai sumber. Aplikasi ini menyediakan pembaruan status melalui Antarmuka Pengguna Berbasis Teks (TUI), serta menyediakan serangkaian API RESTful yang kaya fitur untuk analisis mendalam.
+- MCP server stdio untuk dipakai langsung oleh AI agent.
+- SQLite local cache di `data/saham.db`.
+- Sinkronisasi emiten, harga pasar, rasio, corporate action, fundamental, dan histori dividen.
+- Screener aktif untuk undervalued, market cap, teknikal, dividen, cash rich, growth, ranking, dan saham spekulatif/gorengan.
+- Analyzer dividen dengan TTM yield, DPR, CAGR, streak, dan safety rating.
+- Integrasi market data IDX, KSEI, TradingView, Yahoo Finance, Stockbit, dan Google News.
+- Worker background untuk initial sync dan update harga berkala saat jam bursa.
 
----
+## Tech Stack
 
-## 🚀 Fitur Utama
+| Area       | Teknologi                                    |
+| ---------- | -------------------------------------------- |
+| Runtime    | Bun                                          |
+| Language   | TypeScript ESM                               |
+| Protocol   | Model Context Protocol SDK                   |
+| Database   | SQLite via `bun:sqlite`                      |
+| Scheduler  | `node-cron`                                  |
+| Indicators | `technicalindicators`                        |
+| News       | `rss-parser`, `@extractus/article-extractor` |
 
-- **CLI Interaktif**
-  Menyediakan antarmuka baris perintah dengan kemampuan live monitoring dan manajemen data.
+## Requirements
 
-- **MCP Server**
-  Menawarkan serangkaian MCP (Model Context Protocol) tools untuk akses data terprogram oleh AI agent, termasuk profil saham & analisis teknikal.
+- Bun
+- Internet access untuk sinkronisasi data eksternal
+- Token Stockbit jika memakai broker summary:
+  - `STOCKBIT_BEARER_TOKEN`
+  - `STOCKBIT_REFRESH_TOKEN`
 
-- **Data Scraping Otomatis**
-  Menggunakan scraper untuk mengambil data fundamental dan harga secara terjadwal (cron).
+## Setup
 
-- **Database Persisten**
-  Mengelola data pasar saham menggunakan database internal dengan riwayat tahunan.
-
-- **Fitur Analisis Lanjutan**
-  Menyediakan endpoint API khusus untuk screener lanjutan seperti Value Investing, Growth Screener, dan Dividend Hunters.
-
----
-
-## 🛠️ Pengaturan & Instalasi
-
-Proyek ini dibangun dengan **Bun** dan **TypeScript**. Pastikan kamu sudah memiliki [Bun](https://bun.sh/) di sistemmu.
-
-### 1. Instalasi Dependensi
-
-Jalankan perintah berikut untuk mengunduh semua kebutuhan proyek:
+Install dependencies:
 
 ```bash
 bun install
 ```
 
-### 2. Menjalankan Aplikasi
-
-Gunakan skrip `point` yang didefinisikan dalam `package.json` untuk menjalankan aplikasi:
+Siapkan `.env` dari contoh berikut:
 
 ```bash
-bun point
+STOCKBIT_BEARER_TOKEN=DI_ISI_OTOMATIS
+STOCKBIT_REFRESH_TOKEN=YOUR_STOCKBIT_REFRESH_TOKEN
 ```
 
----
+Jalankan MCP server:
 
-## ⚙️ Penggunaan & Perintah (CLI)
+```bash
+bun run start
+```
 
-Aplikasi ini mendukung beberapa perintah utama melalui TUI-nya:
+Mode development:
 
-- **`sync`**
-  Memulai siklus sinkronisasi data fundamental dan harga pasar secara otomatis. Proses ini berjalan di latar belakang dengan progress bar.
+```bash
+bun run dev
+```
 
-- **`detail <kode>`**
-  Mengambil profil lengkap saham, termasuk ringkasan metrik finansial dan riwayat historis 5 tahun.
+Build distribusi:
 
-- **`show emiten`**
-  Mendaftar semua kode emiten yang tersimpan di database beserta status pembaruan data terakhirnya.
+```bash
+bun run build:tar
+```
 
-- **`show endpoints`**
-  Menampilkan daftar dinamis semua MCP tools yang tersedia pada server.
+> [!CAUTION]
+> `bun run build:tar` menghapus ulang `dist` dan `saham-point.tar.gz` sebelum membuat arsip baru.
 
-- **`clear` / `exit`**
-  Mengontrol tampilan dan menghentikan aplikasi.
+## MCP Tools
 
----
+### Stock & News
 
-## 📚 Panduan Dokumentasi Proyek Mendalam (Arsitektur)
+- `search_stock_code`
+- `list_emiten`
+- `get_stock_profile`
+- `get_technical_indicators`
+- `search_news`
 
-Bagian ini memberikan rincian mendalam tentang arsitektur sistem, membagi fungsionalitas menjadi tiga pilar utama.
+### Market
 
-### 1. Pilar Data Scraping & Persistence
+- `get_corporate_actions`
+- `get_market_overview`
+- `get_sector_emiten`
 
-- **Alur Kerja:** Proses data dimulai dari `src/scrapper/index.ts` yang menjadwalkan pengambilan harga real-time (`syncMarketPrices`) dan sinkronisasi fundamental secara massal (`syncDataAll`).
-- **Database Schema:** Struktur database di `src/db/index.ts` menyimpan data emiten utama, serta tabel terpisah untuk riwayat finansial tahunan (`stock_histories`), memungkinkan analisis historis mendalam.
+### Bandarmology
 
-### 2. Pilar MCP Server (Backend)
+- `get_broker_summary`
+- `get_foreign_flow`
 
-Semua fungsionalitas canggih tidak lagi diekspos sebagai REST endpoint konvensional, melainkan sebagai **MCP (Model Context Protocol) Tools** melalui `src/routes/mcp.router.ts`. Setiap request membuat instans `McpServer` dan transport baru (stateless), sehingga dapat dipanggil langsung oleh AI agent (mis. Claude) secara terprogram.
+### Screener
 
-### 3. Pilar CLI & TUI
+- `screener_undervalued`
+- `screener_market_cap`
+- `screener_technical`
+- `screener_dividends`
+- `screener_cash_rich`
+- `screener_growth`
+- `screener_rankings`
+- `screener_gorengan`
 
-CLI berfungsi sebagai antarmuka pengguna utama, memanfaatkan `src/cli/tui-engine.ts` dan `src/cli/command.ts` untuk menampilkan status sistem secara real-time melalui TUI yang interaktif.
+### Analyzer & Sync
 
----
+- `analyze_dividend`
+- `manage_stock_histories_sync`
+- `manage_dividend_histories_sync`
+- `manage_system_logs`
 
-## 🤖 Fitur MCP Tools
+## Data Sources
 
-**Kategori:** Model Context Protocol Server
-**File:** `src/routes/mcp.router.ts`
-**Dependencies:** `@modelcontextprotocol/sdk`, `zod`
+| Sumber                | Data                                                |
+| --------------------- | --------------------------------------------------- |
+| TradingView Scanner   | daftar emiten, harga, market cap, rasio ringkas     |
+| TradingView WebSocket | fundamental historis dan histori dividen            |
+| Yahoo Finance         | candle OHLCV untuk indikator teknikal               |
+| IDX/BEI               | market overview, trading summary, UMA, foreign flow |
+| KSEI                  | corporate action                                    |
+| Stockbit              | broker summary dan bandar detector                  |
+| Google News           | berita dan artikel pasar                            |
 
-Server MCP didaftarkan dengan nama `saham-point-mcp` dan menyediakan dua kelompok tools: **Saham Core Tools** untuk data profil/analisis emiten, dan **Screener Tools** untuk penyaringan saham berbasis kriteria.
+## Local Data
 
-### ✅ Saham Core Tools
+Database dibuat otomatis di:
 
-| Tool                       | Parameter                                                            | Deskripsi                                                                                                       |
-| -------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `get_stock_profile`        | `code` (string)                                                      | Mengambil profil ringkas emiten IDX beserta seluruh laporan keuangan tahunannya.                                |
-| `get_technical_indicators` | `code` (string), `range` (default `1y`: `1mo`/`3mo`/`6mo`/`1y`/`2y`) | Mengambil rangkuman 16+ indikator teknikal (RSI, MACD, Moving Averages, Bollinger, ATR, ADX, Ichimoku, Volume). |
-| `get_stock_valuation`      | `code` (string)                                                      | Estimasi harga wajar emiten berdasarkan rasio PER saat ini vs rata-rata PER historis 5 tahun.                   |
-| `get_stock_growth`         | `code` (string)                                                      | Menganalisis tren pertumbuhan YoY pendapatan dan laba bersih emiten.                                            |
-| `get_stock_news`           | `code` (string), `limit` (default `10`)                              | Mengambil berita finansial & emiten terkini dari RSS Google News & Yahoo Finance.                               |
-| `get_sector_emiten`        | `name` (string, mis. `Financials`, `Healthcare`, `Technology`)       | Mengambil daftar emiten dalam satu sektor, diurutkan dari market cap terbesar.                                  |
+```text
+data/saham.db
+```
 
-### ✅ Screener Tools
+Tabel utama:
 
-| Tool                        | Parameter (default)                                                              | Deskripsi                                                                            |
-| --------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `screener_undervalued`      | `max_pbv` (1.5), `min_roe` (10.0), `max_der` (2.0), `limit` (25)                 | Value Investing — menyaring saham murah dengan ROE tinggi, DER sehat, PBV/PER wajar. |
-| `screener_market_cap`       | `min_market_cap` (0), `max_market_cap` (opsional), `sort` (`desc`), `limit` (25) | Menyaring saham berdasarkan rentang kapitalisasi pasar.                              |
-| `screener_technical`        | `strategy` (`breakout`), `limit` (30)                                            | Momentum harga harian berdasarkan strategi teknikal (breakout, reversal, volatile).  |
-| `screener_dividend_hunters` | `min_yield` (5.0), `limit` (25)                                                  | Memburu saham dengan Dividend Yield jumbo dan rasio utang aman (DER ≤ 1.5).          |
-| `screener_cash_rich`        | `limit` (25)                                                                     | Perusahaan super solven dengan Free Cash Flow positif dan Net Debt negatif.          |
-| `screener_growth`           | `limit` (25)                                                                     | Emiten dengan akselerasi pertumbuhan laba bersih positif pada laporan terbaru.       |
-| `screener_rankings`         | `sort` (`market_cap`), `limit` (25)                                              | Peringkat emiten teratas berdasarkan `market_cap` atau `dividend_yield`.             |
+- `emiten`
+- `stock_histories`
+- `dividend_histories`
+- `corporate_actions`
+- `sync_ca_history`
 
-### Arsitektur Handler MCP
+## Project Structure
 
-- Setiap request (`mcpRouter.all("*")`) membuat **instans `McpServer` dan transport baru** (`WebStandardStreamableHTTPServerTransport`) — bersifat stateless, tanpa `sessionIdGenerator`.
-- Body request di-parse sebagai JSON untuk request `POST`, lalu diteruskan ke `transport.handleRequest`.
-- Semua tool memvalidasi input menggunakan schema **Zod**, dan mengembalikan hasil sebagai teks JSON (`content: [{ type: "text", text: ... }]`).
-- Error pada handler ditangkap dan dikembalikan sebagai response `500` dengan pesan error.
+```text
+src/
+  mcp.ts                 # MCP server entry point
+  worker.ts              # background scheduler
+  db/                    # SQLite schema and connection
+  mcp/                   # MCP tool registry
+  client/                # external API clients
+  services/              # sync, screener, analyzer, news, market logic
+  auth/                  # Stockbit token refresh
+  utils/                 # date, log, RSS, indicator, promise helpers
+  types.ts               # shared types
+docs/
+  ARCHITECTURE.md
+  API_OR_CONTRACTS.md
+```
 
----
+## Sync Behavior
 
-<div align="center">
+Saat MCP server berjalan, `src/mcp.ts` memicu `src/worker.ts` sebagai child process. Worker melakukan initial sync untuk:
 
-@2026. Saham Point Scrapper IHSG Data & Endpoint API for Agentic AI
+- daftar emiten,
+- data pasar lengkap,
+- corporate action KSEI.
 
-</div>
+Setelah itu worker menjalankan update harga setiap menit pada Senin-Jumat jam 09:00-16:59 WIB.
+
+Sinkronisasi histori fundamental dan dividen dapat dikontrol lewat tool:
+
+- `manage_stock_histories_sync`
+- `manage_dividend_histories_sync`
